@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from test.topology_random_failures.cluster_events import ClusterEventType
 
 
-TESTS_COUNT = 1  # number of tests from the whole matrix to run, None to run the full matrix.
+TESTS_COUNT = None  # number of tests from the whole matrix to run, None to run the full matrix.
 
 # Following parameters can be adjusted to run same sequence of tests from a previous run.  Look at logs for the values.
 # Also see `pytest_generate_tests()` below for details.
