@@ -468,6 +468,13 @@ class ScyllaRESTAPIClient():
     async def abort_task(self, node_ip: str, task_id: str):
         await self.client.post(f'/task_manager/abort_task/{task_id}', host=node_ip)
 
+    async def set_trace_probability(self, node_ip: str, probability: float) -> None:
+        await self.client.post(
+            resource_uri="/storage_service/trace_probability",
+            host=node_ip,
+            params={"probability": probability},
+        )
+
 class ScyllaMetrics:
     def __init__(self, lines: list[str]):
         self.lines: list[str] = lines
