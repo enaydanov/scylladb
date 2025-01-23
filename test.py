@@ -25,6 +25,11 @@ import shutil
 import signal
 import socket
 import subprocess
+
+if __name__ == "__main__":
+    subprocess.check_call("sudo dnf install -y python3-deepdiff python3-cryptography", shell=True)
+    subprocess.check_call("sudo -H pip install universalasync boto3-stubs[dynamodb]", shell=True)
+
 import sys
 import time
 import traceback
