@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import List, Optional, Callable, Any, Awaitable, Dict, Tuple
 from time import time
 import logging
-from test.pylib.log_browsing import ScyllaLogFile
+from test.pylib.log_browsing import ScyllaLogFile, SyncScyllaLogFile
 from test.pylib.rest_client import UnixRESTClient, ScyllaRESTAPIClient, ScyllaMetricsClient
 from test.pylib.util import wait_for, wait_for_cql_and_get_hosts, Host
 from test.pylib.internal_types import ServerNum, IPAddress, HostID, ServerInfo, ServerUpState
@@ -603,10 +603,10 @@ class ManagerClient:
         await asyncio.gather(*(self.server_not_sees_other_server(ip, server_ip, interval)
                                for ip in others_ips))
 
-    async def server_open_log(self, server_id: ServerNum) -> ScyllaLogFile:
+    async def server_open_log(self, server_id: ServerNum, sync: bool = False) -> ScyllaLogFile | SyncScyllaLogFile:
         logger.debug("ManagerClient getting log filename for %s", server_id)
         log_filename = await self.client.get_json(f"/cluster/server/{server_id}/get_log_filename")
-        return ScyllaLogFile(self.thread_pool, log_filename)
+        return SyncScyllaLogFile(log_filename) if sync else ScyllaLogFile(self.thread_pool, log_filename)
 
     async def server_get_workdir(self, server_id: ServerNum) -> str:
         return await self.client.get_json(f"/cluster/server/{server_id}/workdir")

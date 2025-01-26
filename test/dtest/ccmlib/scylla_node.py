@@ -22,7 +22,7 @@ from test.pylib.manager_client import NoSuchProcess
 
 if TYPE_CHECKING:
     from test.pylib.internal_types import ServerInfo
-    from test.pylib.log_browsing import ScyllaLogFile
+    from test.pylib.log_browsing import SyncScyllaLogFile
     from test.dtest.ccmlib.scylla_cluster import ScyllaCluster
 
 
@@ -153,8 +153,8 @@ class ScyllaNode:
     is_live = is_running
 
     @cached_property
-    def scylla_log_file(self) -> ScyllaLogFile:
-        return self.cluster.manager.server_open_log(server_id=self.server_id)
+    def scylla_log_file(self) -> SyncScyllaLogFile:
+        return self.cluster.manager.server_open_log(server_id=self.server_id, sync=True)
 
     def grep_log(self,
                  expr: str,
