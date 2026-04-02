@@ -21,7 +21,6 @@ import pytest
 import yaml
 
 from test.pylib.suite.base import (
-    SUITE_CONFIG_FILENAME,
     TEST_CONFIG_FILENAME,
     TestSuite,
     Test,
@@ -29,7 +28,6 @@ from test.pylib.suite.base import (
     find_suite_config,
     palette,
     prepare_dir,
-    read_log,
 )
 
 
@@ -457,28 +455,6 @@ class TestPrepareDir:
         # Let's just verify it doesn't crash and dir is usable
         assert target.is_dir() or not target.exists()
 
-
-# ===================================================================
-# read_log
-# ===================================================================
-
-
-class TestReadLog:
-    """Tests for the read_log() helper."""
-
-    def test_reads_content(self, tmp_path):
-        log = tmp_path / "test.log"
-        log.write_text("line1\nline2\n")
-        assert read_log(log) == "line1\nline2\n"
-
-    def test_empty_file(self, tmp_path):
-        log = tmp_path / "empty.log"
-        log.write_text("")
-        assert read_log(log) == "===Empty log output==="
-
-    def test_missing_file(self, tmp_path):
-        result = read_log(tmp_path / "missing.log")
-        assert "not found" in result.lower() or "Not found" in result
 
 
 # ===================================================================

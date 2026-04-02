@@ -12,15 +12,13 @@ interactions with the suite framework.
 2. [Imports and Constants](#2-imports-and-constants)
 3. [Command-Line Interface](#3-command-line-interface)
 4. [ThreadsCalculator](#4-threadscalculator)
-5. [TabularConsoleOutput](#5-tabularconsoleoutput)
-6. [Signal Handling](#6-signal-handling)
-7. [Test Discovery](#7-test-discovery)
-8. [Pytest Runner Bridge](#8-pytest-runner-bridge)
-9. [Async Test Execution](#9-async-test-execution)
-10. [Summary and Reporting](#10-summary-and-reporting)
-11. [Coverage Processing](#11-coverage-processing)
-12. [Main Orchestrator](#12-main-orchestrator)
-13. [Entry Point](#13-entry-point)
+5. [Signal Handling](#5-signal-handling)
+6. [Pytest Runner Bridge](#6-pytest-runner-bridge)
+7. [Async Test Execution](#7-async-test-execution)
+8. [Summary and Reporting](#8-summary-and-reporting)
+9. [Coverage Processing](#9-coverage-processing)
+10. [Main Orchestrator](#10-main-orchestrator)
+11. [Entry Point](#11-entry-point)
 
 ---
 
@@ -36,17 +34,14 @@ interactions with the suite framework.
 an async Python script that:
 
 1. Parses extensive command-line arguments (~30 options).
-2. Discovers test suites from `test_config.yaml` / `suite.yaml` files using the
-   suite framework's `TestSuite.opt_create()` factory.
-3. Runs **two separate test pipelines** in a single invocation:
-   - **Pytest pipeline**: delegates to `pytest.main()` in-process for directories
-     listed in `PYTEST_RUNNER_DIRECTORIES`. Parses JUnit XML for failures.
-   - **Legacy pipeline**: runs tests from the suite framework as async tasks with
-     configurable concurrency, signal handling, max-failures, and session timeout.
-4. Processes code coverage data through a 5-stage pipeline.
-5. Prints a summary with CPU utilization, failure details, and test counts.
+2. Calls `run_pytest()` -- **this is where all tests actually run**.
+3. Processes code coverage data through a 5-stage pipeline.
+4. Prints a summary with CPU utilization, failure details, and test counts.
 
-The file is approximately 903 lines and serves as the primary entry point when
+`test.py` does not discover or execute tests directly.  It delegates entirely
+to `run_pytest()`.
+
+The file is approximately 763 lines and serves as the primary entry point when
 running `./test.py` from the repository root.
 
 ---
@@ -56,12 +51,10 @@ running `./test.py` from the repository root.
 ### 2.1 Suite Framework Imports
 
 From `test.pylib.suite.base`:
-- `SUITE_CONFIG_FILENAME` -- used to discover suite config files
 - `Test` -- referenced for `print_summary` method on SimpleNamespace shims
 - `TestSuite` -- used for `opt_create()`, `test_count()`, `all_tests()`,
   `artifacts`, `hosts` class-level state
 - `init_testsuite_globals` -- called once to set up global registries
-- `output_is_a_tty` -- TTY detection for `TabularConsoleOutput`
 - `palette` -- color formatting for terminal output
 - `prepare_environment` -- initializes directories and third-party services
 
@@ -200,38 +193,7 @@ Returns `min(default_num_jobs_mem, max(1, ceil(nr_cpus / cpus_per_test_job)))`.
 
 ---
 
-## 5. TabularConsoleOutput
-
-**Purpose:** Prints formatted test progress to the console.
-
-### Constructor
-
-- `verbose: bool` -- verbose mode flag
-- `test_count: int` -- total number of tests for the `[N/TOTAL]` counter
-
-If `output_is_a_tty` is `False`, forces verbose mode (no ANSI cursor control).
-
-### Methods
-
-**`print_start_blurb()`**: prints a header line with column labels:
-`[N/TOTAL]  SUITE   MODE   RESULT  TEST`, enclosed in `=`/`-` separators.
-
-**`print_end_blurb()`**: prints a closing `-` separator line.
-
-**`print_progress(test: Test)`**: increments the test counter and prints one
-result line. Behavior depends on test outcome and verbosity:
-
-- **Success (not flaky):** `[ PASS ]` in green via `palette.ok`.
-- **Success (flaky retry):** `[ FLKY ]` in yellow via `palette.warn`.
-- **Failure:** `[ FAIL ]` in red via `palette.fail`.
-- In non-verbose mode, uses ANSI escape sequences (`\033[A` / `\033[K`) to
-  overwrite the previous line. Failed tests leave an extra newline to prevent
-  overwriting.
-- In verbose mode, appends the test duration in seconds.
-
----
-
-## 6. Signal Handling
+## 5. Signal Handling
 
 ### `setup_signal_handlers(loop, signaled)`
 
@@ -247,23 +209,7 @@ coroutines if no signal is ever delivered.
 
 ---
 
-## 7. Test Discovery
-
-### `find_tests(options: argparse.Namespace) -> None` (async)
-
-Scans `TEST_DIR` for all first-level subdirectories containing a
-`SUITE_CONFIG_FILENAME` file. For each found config and each mode in
-`options.modes`:
-
-1. Calls `TestSuite.opt_create(config=config, options=options, mode=mode)` to
-   create or retrieve the cached suite instance.
-2. Calls `await suite.add_test_list()` to discover and register tests.
-
-This populates `TestSuite.suites` and the `tests` list on each suite instance.
-
----
-
-## 8. Pytest Runner Bridge
+## 6. Pytest Runner Bridge
 
 ### `run_pytest(options: argparse.Namespace) -> tuple[int, list[SimpleNamespace]]`
 
@@ -271,7 +217,7 @@ Runs tests from `PYTEST_RUNNER_DIRECTORIES` via an in-process `pytest.main()`
 call. This is **not** the same as the suite framework's per-test pytest
 invocations -- this runs all pytest-discoverable tests in a single session.
 
-### 8.1 File Selection
+### 6.1 File Selection
 
 - If `options.name` is specified: filters names to those whose paths are relative
   to any `PYTEST_RUNNER_DIRECTORIES` entry. Supports `::` syntax for function
@@ -279,7 +225,7 @@ invocations -- this runs all pytest-discoverable tests in a single session.
 - If no names specified: runs all tests under `TOP_SRC_DIR / 'test/'`.
 - If no files match after filtering: logs a skip message and returns `(0, [])`.
 
-### 8.2 Argument Construction
+### 6.2 Argument Construction
 
 Always included: `--color=yes`, `--repeat=N`, `--mode=M` (for each mode).
 
@@ -298,7 +244,7 @@ Conditional arguments are appended for: `--verbose`, `--quiet` (with
 `--extra-scylla-cmdline-options`, `--save-log-on-success` / `--allure-no-capture`,
 `--markers`.
 
-### 8.3 JUnit XML Parsing
+### 6.3 JUnit XML Parsing
 
 After `pytest.main()` returns, parses the JUnit XML output file
 (`pytest_cpp_<HOST_ID>.xml`) to extract failed tests:
@@ -315,59 +261,37 @@ Returns `(total_tests, failed_tests)`.
 
 ---
 
-## 9. Async Test Execution
+## 7. Async Test Execution
 
 ### `run_all_tests(signaled, options) -> tuple[int, list[SimpleNamespace]] | None` (async)
 
-The main async execution loop that runs both pipelines:
+This function is a thin wrapper:
 
 1. **Pytest pipeline** (blocking): calls `run_pytest(options)` in a thread
    executor (`loop.run_in_executor(None, run_pytest, options)`) to avoid blocking
    the event loop while resource monitoring runs concurrently.
 
-2. **Console setup**: creates `TabularConsoleOutput` with `TestSuite.test_count()`
-   total tests. Calls `print_start_blurb()`.
-
-3. **Cleanup registration**: registers `TestSuite.hosts.cleanup` as an exit
+2. **Cleanup registration**: registers `TestSuite.hosts.cleanup` as an exit
    artifact on `TestSuite.artifacts`.
 
-4. **Task pool**: maintains a set of `pending` tasks (initially containing the
-   `signaled` event wait task). For each test in `TestSuite.all_tests()`:
-   - If `len(pending) > options.jobs`: waits for `FIRST_COMPLETED`, reaps results.
-   - Checks session timeout (`time.perf_counter() > deadline`).
-   - Checks max failures (`max_failures != 0 and max_failures <= failed`).
-   - On timeout or max-failures: cancels all pending tasks.
-   - Adds `asyncio.create_task(test.suite.run(test, options))` to pending.
+3. **Cleanup**: calls `TestSuite.artifacts.cleanup_before_exit()` in `finally`.
 
-5. **Drain loop**: waits for all remaining tasks (except the signaled task) via
-   `FIRST_COMPLETED` in a while loop.
-
-6. **Reap function** (`reap(done, pending, signaled)`): processes completed tasks:
-   - If signaled is set: cancels all pending.
-   - For each completed coroutine: checks `result.success`, increments failure
-     count, calls `console.print_progress(result)`.
-   - Skips boolean results (from the signaled task).
-
-7. **Cleanup**: calls `TestSuite.artifacts.cleanup_before_exit()` in `finally`.
-
-Returns `(total_tests_from_both_pipelines, failed_pytest_tests)`.
+Returns `(total_tests, failed_pytest_tests)`.
 
 ---
 
-## 10. Summary and Reporting
+## 8. Summary and Reporting
 
-### `print_summary(failed_tests, cancelled_tests, options, failed_pytest_tests, total_tests_pytest)`
+### `print_summary(options, failed_pytest_tests, total_tests_pytest)`
 
-Combines results from both pipelines into a unified summary:
+Prints a unified summary:
 
 1. **CPU utilization**: computes from `resource.getrusage(RUSAGE_CHILDREN)` user +
    system time, divided by wall-time * CPU count.
-2. **Total tests**: `TestSuite.test_count() + total_tests_pytest`.
+2. **Total tests**: `total_tests_pytest`.
 3. **Failure report**: if any failures exist, prints the list of failed test names
-   and, in verbose mode, calls `test.print_summary()` for each legacy-pipeline
-   failure (with `-` separators between them).
-4. **Cancellation**: if tests were cancelled, includes the count in the summary.
-5. **No-tests warning**: if `total_tests == 0`, prints a warning message
+   and a summary count.
+4. **No-tests warning**: if `total_tests == 0`, prints a warning message
    suggesting the user may need to use file paths with extensions, listing
    `PYTEST_RUNNER_DIRECTORIES` as the directories that require this.
 
@@ -381,7 +305,7 @@ Sets up Python logging:
 
 ---
 
-## 11. Coverage Processing
+## 9. Coverage Processing
 
 ### `process_coverage(options)` (async)
 
@@ -389,7 +313,7 @@ A 5-stage pipeline for processing LLVM code coverage profiles into consolidated
 lcov trace files. Uses `treelib.Tree` for hierarchical statistics tracking and
 `humanfriendly` for human-readable size/time formatting.
 
-### 11.1 Setup
+### 9.1 Setup
 
 - Computes concurrency as `max(int(cpu_count * 0.75), 1)`.
 - Builds binary ID map via `coverage_utils.get_binary_ids_map()` for paths under
@@ -397,7 +321,7 @@ lcov trace files. Uses `treelib.Tree` for hierarchical statistics tracking and
 - Identifies ran suites via `{test.suite for test in TestSuite.all_tests() if test.suite.need_coverage()}`.
 - Loads exclusion patterns from `coverage_excludes.txt`.
 
-### 11.2 Five Stages (per suite)
+### 9.2 Five Stages (per suite)
 
 **Stage 1 -- Raw to Indexed**: `coverage_utils.merge_profiles()` converts
 `.profraw` files to indexed profiles. Optionally deletes raw profiles
@@ -418,75 +342,50 @@ into a single `<mode>_coverage.info`.
 **Stage 5 -- Total Merge**: Combines all mode trace files into a single
 `test_coverage.info`.
 
-### 11.3 Reporting
+### 9.3 Reporting
 
 - Generates a textual report via `lcov --summary` and `lcov --list` to
   `test_coverage_report.txt`.
 - Logs hierarchical statistics tree and coverage summary.
 
-### 11.4 Statistics Tracking
-
-Uses a `Stats` inner class with `name`, `size`, and `time` fields, supporting
-`__add__` for aggregation and `__str__` for formatting. The `treelib.Tree`
-organizes stats hierarchically:
-
-```
-root
-  +-- <mode> mode processing stats
-       +-- raw profiles
-       |     +-- <suite>
-       +-- indexed profiles
-       |     +-- <suite>
-       +-- lcov conversion
-       |     +-- <suite>
-       +-- lcov per suite merge
-       |     +-- <suite>
-       +-- lcov merge for mode
-  +-- lcov merge all stats
-```
-
-Size tracking uses `max()` for mode-level (peak disk usage), `+=` for
-per-stage aggregation.
+> **Note:** `process_coverage()` is currently non-functional because
+> `TestSuite.all_tests()` returns an empty iterator (no `suite.yaml` files
+> exist).  It is a candidate for extraction or removal in future cleanup.
 
 ---
 
-## 12. Main Orchestrator
+## 10. Main Orchestrator
 
 ### `main() -> int` (async)
 
 The top-level async function that orchestrates the entire test run:
 
 1. **Parse CLI**: `options = parse_cmd_line()`.
-2. **Discover tests**: `await find_tests(options)`.
-3. **List mode**: if `--list`, prints tests in `mode type name` format (strips
-   the `TestSuite` suffix from the class name) and runs `run_pytest(options)` for
-   listing, then returns 0.
-4. **Open log**: creates the main log file at `tmpdir/test.py.<modes>.log`.
-5. **Initialize globals**: `init_testsuite_globals()`.
-6. **Prepare environment**: `await prepare_environment(...)` with `tempdir_base`,
+2. **List mode**: if `--list`, calls `run_pytest(options)` for collection listing,
+   then returns 0.
+3. **Open log**: creates the main log file at `tmpdir/test.py.<modes>.log`.
+4. **Initialize globals**: `init_testsuite_globals()`.
+5. **Prepare environment**: `await prepare_environment(...)` with `tempdir_base`,
    `modes`, `gather_metrics`, `save_log_on_success`, `toxiproxy_byte_limit`.
-7. **Set environment flag**: `os.environ[TESTPY_PREPARED_ENVIRONMENT] = '1'`
+6. **Set environment flag**: `os.environ[TESTPY_PREPARED_ENVIRONMENT] = '1'`
    (signals to the pytest plugin that test.py has already prepared the
    environment).
-8. **Manual execution guard**: if `--manual-execution` and more than 1 test
-   selected, prints an error and returns 1.
-9. **Resource watcher**: starts `run_resource_watcher()` with signaled and stop
+7. **Resource watcher**: starts `run_resource_watcher()` with signaled and stop
    events.
-10. **Signal handlers**: calls `setup_signal_handlers()`.
-11. **Run tests**: `total_tests_pytest, failed_pytest_tests = await run_all_tests(signaled, options)`.
-12. **Stop resource watcher**: sets stop event, waits with 5-second timeout.
-13. **Handle signals**: if signaled, returns `-signaled.signo`.
-14. **Collect results**: filters `TestSuite.all_tests()` for `failed` and
-    `did_not_run` tests.
-15. **Print summary**: `print_summary(...)`.
-16. **Legacy coverage**: if `"coverage"` build mode is active, calls
+8. **Signal handlers**: calls `setup_signal_handlers()`.
+9. **Run tests**: `total_tests_pytest, failed_pytest_tests = await run_all_tests(signaled, options)`.
+10. **Stop resource watcher**: sets stop event, waits with 5-second timeout.
+11. **Handle signals**: if signaled, returns `-signaled.signo`.
+12. **Print summary**: `print_summary(options, failed_pytest_tests, total_tests_pytest)`.
+13. **Legacy coverage**: if `"coverage"` build mode is active, calls
     `coverage.generate_coverage_report()`.
-17. **LLVM coverage**: if `--coverage`, calls `await process_coverage(options)`.
-18. **Exit code**: returns `0` if no failures, `1` otherwise.
+14. **LLVM coverage**: if `--coverage`, calls `await process_coverage(options)`.
+15. **Exit code**: returns `0` if no failures (`failed_pytest_tests` is empty),
+    `1` otherwise.
 
 ---
 
-## 13. Entry Point
+## 11. Entry Point
 
 The `if __name__ == "__main__"` block:
 
@@ -505,11 +404,9 @@ The `if __name__ == "__main__"` block:
 
 | Symbol | Source | Usage in test.py |
 |--------|--------|-----------------|
-| `SUITE_CONFIG_FILENAME` | `base.py` | `find_tests()` -- glob for config files |
 | `Test` | `base.py` | `run_pytest()` -- `Test.print_summary` as unbound method reference |
-| `TestSuite` | `base.py` | Factory (`opt_create`), iteration (`all_tests`), counting (`test_count`), class state (`artifacts`, `hosts`) |
+| `TestSuite` | `base.py` | Factory (`opt_create`), class state (`artifacts`, `hosts`) |
 | `init_testsuite_globals` | `base.py` | `main()` -- one-time global setup |
-| `output_is_a_tty` | `base.py` | `TabularConsoleOutput` -- TTY detection |
 | `palette` | `base.py` | Multiple locations -- color formatting |
 | `prepare_environment` | `base.py` | `main()` -- directory and service setup |
 
@@ -521,22 +418,23 @@ test.py                          Suite Framework
 parse_cmd_line()
       |
       v
-find_tests(options)
-      |--- for each test_config.yaml and mode:
-      |      TestSuite.opt_create() -------> creates/caches TestSuite subclass
-      |      suite.add_test_list() --------> discovers + registers Test instances
-      v
 run_all_tests()
-      |--- TestSuite.test_count() ---------> total test count
-      |--- TestSuite.all_tests() ----------> iterate all Test instances
-      |--- test.suite.run(test, options) --> TestSuite.run() -> test.run()
+      |--- run_pytest(options) ---------> pytest.main() with --test-py-init
+      |                                      |
+      |                                      v
+      |                                   runner.py plugin
+      |                                      |--- init_testsuite_globals()
+      |                                      |--- prepare_environment()
+      |                                      |--- testpy_test fixture
+      |                                      |      get_testpy_test() -> TestSuite.opt_create()
+      |                                      |--- conftest fixtures use testpy_test.suite
+      |                                      v
       |--- TestSuite.artifacts.cleanup() --> exit cleanup
       v
 print_summary()
-      |--- TestSuite.test_count() ---------> total count
-      |--- TestSuite.all_tests() ----------> filter failed/cancelled
-      |--- test.print_summary() -----------> per-test output
+      |--- test.print_summary() -----------> per-test output (for failures)
       v
 process_coverage()
       |--- TestSuite.all_tests() ----------> filter suites with need_coverage()
+                                             (currently returns empty -- non-functional)
 ```

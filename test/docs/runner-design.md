@@ -39,7 +39,7 @@ that provides the following capabilities:
 - **Lifecycle management**: initializes suite globals and prepares the environment
   during session start, cleans up during session finish.
 
-The file is approximately 488 lines.
+The file is approximately 486 lines.
 
 ---
 
@@ -48,7 +48,6 @@ The file is approximately 488 lines.
 ### 2.1 Suite Framework Imports
 
 From `test.pylib.suite.base`:
-- `SUITE_CONFIG_FILENAME` -- config file name for suite lookup
 - `PYTEST_TESTS_LOGS_FOLDER` -- subdirectory name for failure logs
 - `TestSuite` -- class-level `artifacts`, `hosts`, `init_testsuite_globals()`
 - `get_testpy_test` -- creates a `Test` instance for a file path
@@ -73,7 +72,7 @@ Four `pytest.StashKey` instances for storing per-node metadata:
 | `RUN_ID` | `int` | Repeat run ID assigned to this collector |
 | `PYTEST_LOG_FILE` | `str` | Path to the current worker/main process log file |
 
-A fifth StashKey, `TEST_SUITE`, is defined at module level (line 442) after the
+A fifth StashKey, `TEST_SUITE`, is defined at module level (line 440) after the
 `TestSuiteConfig` class:
 
 | Key | Type | Purpose |
@@ -304,8 +303,7 @@ the relative path (without extension) is in `disabled_tests(build_mode)`.
 
 Recursively walks the pytest node tree to find the suite config:
 
-1. Checks for `SUITE_CONFIG_FILENAME` (`suite.yaml`) or `TEST_CONFIG_FILENAME`
-   (`test_config.yaml`) in `node.path`.
+1. Checks for `TEST_CONFIG_FILENAME` (`test_config.yaml`) in `node.path`.
 2. If not found: walks up via `node.parent` stash or recursive call.
 3. If found: applies `--extra-scylla-cmdline-options` by merging into the config's
    `extra_scylla_cmdline_options` via `merge_cmdline_options()`.
@@ -430,7 +428,6 @@ collector to item.
 
 | Symbol | Usage |
 |--------|-------|
-| `SUITE_CONFIG_FILENAME` | `TestSuiteConfig.from_pytest_node()` -- locates config files |
 | `PYTEST_TESTS_LOGS_FOLDER` | `pytest_runtest_makereport` -- failure log directory |
 | `TestSuite.artifacts` | `pytest_sessionstart` (exit artifact), `pytest_sessionfinish` (cleanup) |
 | `TestSuite.hosts` | `pytest_sessionstart` (cleanup registration) |

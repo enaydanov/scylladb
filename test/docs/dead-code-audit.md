@@ -4,25 +4,30 @@ This document inventories all code that is reachable **only** from `test.py`'s
 legacy execution pipeline and became dead code once the legacy pipeline was
 removed.
 
+> **Phase 1 status:** The legacy execution pipeline (the `TestSuite.run()` →
+> `Test.run()` → `run_test()` chain) was removed in Phase 1.  Items marked
+> ✅ REMOVED below were deleted.  Items marked 🔄 REMAINING are still in the
+> codebase, either because they are shared with the pytest path or because they
+> are part of later migration phases.
+
 ## Critical Finding: The Legacy Pipeline Already Executes Zero Tests
 
 No `suite.yaml` files exist in the repository.  All test suites have been
 migrated to `test_config.yaml`.  The legacy discovery function `find_tests()`
-in `test.py:357-363` globs for `SUITE_CONFIG_FILENAME` (`"suite.yaml"`) and
-finds nothing.  As a result:
+(now removed) in `test.py` globbed for `SUITE_CONFIG_FILENAME`
+(`"suite.yaml"`) and found nothing.  As a result:
 
-- `TestSuite.all_tests()` returns an empty iterator.
-- The async loop in `run_all_tests()` at `test.py:508-520` iterates zero times.
-- The entire `TestSuite.run()` -> `Test.run()` -> `run_test()` chain never
-  executes.
-- `process_coverage()` iterates `TestSuite.all_tests()` and processes nothing.
+- `TestSuite.all_tests()` returned an empty iterator.
+- The async loop in `run_all_tests()` iterated zero times.
+- The entire `TestSuite.run()` → `Test.run()` → `run_test()` chain never
+  executed.
+- `process_coverage()` iterated `TestSuite.all_tests()` and processed nothing.
 
 **`test.py` is already just a wrapper around `run_pytest()` in practice.**
 
-> Note: `get_testpy_test()` in `base.py:597-609` still works because it tries
-> `suite.yaml` first, catches `FileNotFoundError`, then falls back to
-> `test_config.yaml`.  This path is used by conftest fixtures via the pytest
-> runner, not by the legacy pipeline.
+> Note: `get_testpy_test()` in `base.py` now uses `TEST_CONFIG_FILENAME`
+> directly (the `suite.yaml` fallback was removed in Phase 1).  This path is
+> used by conftest fixtures via the pytest runner, not by the legacy pipeline.
 
 ---
 
@@ -35,8 +40,8 @@ execution paths:
    framework for configuration, lifecycle, and cluster management.  Never calls
    `TestSuite.run()` or `Test.run()`.
 
-2. **Legacy path**: `test.py` -> `find_tests()` -> `TestSuite.all_tests()` ->
-   `TestSuite.run()` -> `Test.run()` -> `run_test()`.
+2. **Legacy path**: `test.py` → `find_tests()` → `TestSuite.all_tests()` →
+   `TestSuite.run()` → `Test.run()` → `run_test()`.
 
 Each symbol was classified as:
 
@@ -53,66 +58,66 @@ Each symbol was classified as:
 
 ### Module-Level Symbols
 
-| Symbol | Category | Justification |
-|--------|----------|---------------|
-| `SUITE_CONFIG_FILENAME` | SHARED | Imported by `runner.py:33` and `test.py:45`; but since no `suite.yaml` exists, every reference is a dead lookup that falls through |
-| `TEST_CONFIG_FILENAME` | SHARED | Used in `find_suite_config()` which is called by `get_testpy_test()`, used by both paths |
-| `PYTEST_TESTS_LOGS_FOLDER` | SHARED | Imported by `runner.py:34` and used in `prepare_dirs()` |
-| `output_is_a_tty` | LEGACY-ONLY | Only imported by `test.py:49`, used in `TabularConsoleOutput` |
-| `create_formatter()` | SHARED | Used by `palette` class, imported by `test/pylib/cql_repl.py:26` (pytest) and `test.py` |
-| `palette` class | SHARED | Imported by `test.py:51` and `test/pylib/cql_repl.py:26` |
-| `toxiproxy_id_gen` | ALREADY-DEAD | Unused global — no references anywhere |
+| Symbol | Category | Status | Justification |
+|--------|----------|--------|---------------|
+| `SUITE_CONFIG_FILENAME` | SHARED | ✅ REMOVED | Was imported by `runner.py` and `test.py`; since no `suite.yaml` exists, every reference was a dead lookup |
+| `TEST_CONFIG_FILENAME` | SHARED | 🔄 REMAINING | Used in `find_suite_config()` which is called by `get_testpy_test()`, used by both paths |
+| `PYTEST_TESTS_LOGS_FOLDER` | SHARED | 🔄 REMAINING | Imported by `runner.py` and used in `prepare_dirs()` |
+| `output_is_a_tty` | SHARED | 🔄 REMAINING | Used by `create_formatter()` / `palette`, which are imported by `test/pylib/cql_repl.py` (pytest path) and `test.py` |
+| `create_formatter()` | SHARED | 🔄 REMAINING | Used by `palette` class, imported by `test/pylib/cql_repl.py` (pytest) and `test.py` |
+| `palette` class | SHARED | 🔄 REMAINING | Imported by `test.py` and `test/pylib/cql_repl.py` |
+| `toxiproxy_id_gen` | ALREADY-DEAD | ✅ REMOVED | Unused global — no references anywhere |
 
 ### `TestSuite` Class
 
-| Method / Attribute | Category | Justification |
-|--------------------|----------|---------------|
-| `suites` (class dict) | SHARED | Used by `opt_create()` and `all_tests()` |
-| `artifacts` (class attr) | SHARED | Set by `init_testsuite_globals()`; used by `runner.py:284-285` and `test.py:507,530` |
-| `hosts` (class attr) | SHARED | Set by `init_testsuite_globals()`; used by `runner.py:207` and `test.py:507` |
-| `FLAKY_RETRIES` | LEGACY-ONLY | Only used in `TestSuite.run()` |
-| `_next_id` | SHARED | Used by `next_id()` and `test_count()` |
-| `__init__()` | SHARED | Called by all subclass constructors via `opt_create()` |
-| `next_id()` | SHARED | Called from subclass `add_test()` methods |
-| `test_count()` | LEGACY-ONLY | Only called from `test.py:470,542,597` |
-| `load_cfg()` | SHARED | Called by `opt_create()` |
-| `opt_create()` | SHARED | Called from `runner.py` via `get_testpy_test()` and from `test.py:362` |
-| `all_tests()` | LEGACY-ONLY | Only called from `test.py:508,582,625,626,661` |
-| `pattern` (abstract property) | LEGACY-ONLY | Only consumed by `build_test_list()` (legacy); required by ABC contract |
-| `add_test()` (abstract) | SHARED | Called from `get_testpy_test()` (both) and `add_test_list()` (legacy) |
-| `run()` | LEGACY-ONLY | Only called from `test.py:520` |
-| `junit_tests()` | ALREADY-DEAD | No callers found anywhere |
-| `boost_tests()` | ALREADY-DEAD | No callers found anywhere |
-| `build_test_list()` | LEGACY-ONLY | Only called by `add_test_list()` |
-| `add_test_list()` | LEGACY-ONLY | Only called from `test.py:363` |
-| `need_coverage()` | SHARED | Called in `__init__()` for env setup (shared); standalone call only from `test.py:661` |
+| Method / Attribute | Category | Status | Justification |
+|--------------------|----------|--------|---------------|
+| `suites` (class dict) | SHARED | 🔄 REMAINING | Used by `opt_create()` and `all_tests()` |
+| `artifacts` (class attr) | SHARED | 🔄 REMAINING | Set by `init_testsuite_globals()`; used by `runner.py` and `test.py` |
+| `hosts` (class attr) | SHARED | 🔄 REMAINING | Set by `init_testsuite_globals()`; used by `runner.py` and `test.py` |
+| `FLAKY_RETRIES` | LEGACY-ONLY | ✅ REMOVED | Only used in `TestSuite.run()` |
+| `_next_id` | SHARED | 🔄 REMAINING | Used by `next_id()` and `test_count()` |
+| `__init__()` | SHARED | 🔄 REMAINING | Called by all subclass constructors via `opt_create()` |
+| `next_id()` | SHARED | 🔄 REMAINING | Called from subclass `add_test()` methods |
+| `test_count()` | LEGACY-ONLY | 🔄 REMAINING | Zero callers remain — Phase 1 removed all `test.py` call sites. Dead code. |
+| `load_cfg()` | SHARED | 🔄 REMAINING | Called by `opt_create()` |
+| `opt_create()` | SHARED | 🔄 REMAINING | Called from `runner.py` via `get_testpy_test()` and from `test.py` |
+| `all_tests()` | LEGACY-ONLY | 🔄 REMAINING | Only called from `test.py`; deferred to Phase 3 |
+| `pattern` (abstract property) | LEGACY-ONLY | 🔄 REMAINING | Only consumed by removed `build_test_list()`; required by ABC contract. Deferred to Phase 4 |
+| `add_test()` (abstract) | SHARED | 🔄 REMAINING | Called from `get_testpy_test()` (both) and previously from `add_test_list()` (legacy, now removed) |
+| `run()` | LEGACY-ONLY | ✅ REMOVED | Only called from `test.py` |
+| `junit_tests()` | ALREADY-DEAD | ✅ REMOVED | No callers found anywhere |
+| `boost_tests()` | ALREADY-DEAD | ✅ REMOVED | No callers found anywhere |
+| `build_test_list()` | LEGACY-ONLY | ✅ REMOVED | Only called by `add_test_list()` |
+| `add_test_list()` | LEGACY-ONLY | ✅ REMOVED | Only called from `test.py` |
+| `need_coverage()` | SHARED | 🔄 REMAINING | Called in `__init__()` for env setup (shared); standalone call only from `test.py` |
 
 ### `Test` Class
 
-| Method / Attribute | Category | Justification |
-|--------------------|----------|---------------|
-| `__init__()` | SHARED | Called by all test subclass constructors |
-| `reset()` | LEGACY-ONLY | Only called from `TestSuite.run()` |
-| `failed` (property) | LEGACY-ONLY | Only read from `test.py:625` |
-| `did_not_run` (property) | LEGACY-ONLY | Only read from `test.py:626` |
-| `run()` (abstract) | LEGACY-ONLY | Only called from `TestSuite.run()` |
-| `print_summary()` (abstract) | LEGACY-ONLY | Only called from `test.py:459,548` |
-| `setup()` | ALREADY-DEAD | No callers found anywhere |
-| `check_log()` | INTERNAL-LEGACY | Only called from `run_test()` |
+| Method / Attribute | Category | Status | Justification |
+|--------------------|----------|--------|---------------|
+| `__init__()` | SHARED | 🔄 REMAINING | Called by all test subclass constructors |
+| `reset()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` |
+| `failed` (property) | LEGACY-ONLY | 🔄 REMAINING | Zero callers remain — Phase 1 removed the `failed_tests` collection in `test.py`. Dead code. |
+| `did_not_run` (property) | LEGACY-ONLY | 🔄 REMAINING | Zero callers remain — Phase 1 removed the `cancelled_tests` collection in `test.py`. Dead code. |
+| `run()` (abstract) | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` |
+| `print_summary()` (abstract) | LEGACY-ONLY | 🔄 REMAINING | Only called from `test.py`; kept because it is an `@abstractmethod` and all subclasses are instantiated via `get_testpy_test()` — removing the abstract method would break the class hierarchy. Deferred to Phase 4 |
+| `setup()` | ALREADY-DEAD | ✅ REMOVED | No callers found anywhere |
+| `check_log()` | INTERNAL-LEGACY | ✅ REMOVED | Only called from `run_test()` |
 
 ### Module-Level Functions
 
-| Function | Category | Justification |
-|----------|----------|---------------|
-| `init_testsuite_globals()` | SHARED | Called from `runner.py:206` and `test.py:587` |
-| `read_log()` | INTERNAL-LEGACY | Only called from `print_summary()` methods (legacy-only) |
-| `run_test()` | LEGACY-ONLY | Only called from `Test.run()` implementations; 112 lines, the largest single block of dead code in the suite framework |
-| `prepare_dir()` | INTERNAL-SHARED | Called by `prepare_dirs()` |
-| `prepare_environment()` | SHARED | Called from `runner.py:214` and `test.py:588` |
-| `prepare_dirs()` | INTERNAL-SHARED | Called by `prepare_environment()` |
-| `start_3rd_party_services()` | INTERNAL-SHARED | Called by `prepare_environment()` |
-| `find_suite_config()` | INTERNAL-SHARED | Called by `get_testpy_test()` |
-| `get_testpy_test()` | SHARED | Called from `runner.py:170`, conftest fixtures, and indirectly from legacy discovery |
+| Function | Category | Status | Justification |
+|----------|----------|--------|---------------|
+| `init_testsuite_globals()` | SHARED | 🔄 REMAINING | Called from `runner.py` and `test.py` |
+| `read_log()` | INTERNAL-LEGACY | 🔄 REMAINING | Called from `PythonTest.print_summary()`; kept because `print_summary()` is kept (see above) |
+| `run_test()` | LEGACY-ONLY | ✅ REMOVED | Only called from `Test.run()` implementations; 112 lines, the largest single block of dead code removed |
+| `prepare_dir()` | INTERNAL-SHARED | 🔄 REMAINING | Called by `prepare_dirs()` |
+| `prepare_environment()` | SHARED | 🔄 REMAINING | Called from `runner.py` and `test.py` |
+| `prepare_dirs()` | INTERNAL-SHARED | 🔄 REMAINING | Called by `prepare_environment()` |
+| `start_3rd_party_services()` | INTERNAL-SHARED | 🔄 REMAINING | Called by `prepare_environment()` |
+| `find_suite_config()` | INTERNAL-SHARED | 🔄 REMAINING | Called by `get_testpy_test()` |
+| `get_testpy_test()` | SHARED | 🔄 REMAINING | Called from `runner.py`, conftest fixtures, and indirectly from legacy discovery. Now uses only `TEST_CONFIG_FILENAME` (suite.yaml fallback removed) |
 
 ---
 
@@ -120,32 +125,32 @@ Each symbol was classified as:
 
 ### `PythonTestSuite` Class
 
-| Method / Attribute | Category | Justification |
-|--------------------|----------|---------------|
-| `__init__()` | SHARED | Called via `opt_create()` |
-| `get_cluster_factory()` | SHARED | Called in `__init__()`; cluster pool used by `PythonTest.run_ctx()` |
-| `pattern` (property) | SHARED | Required abstract property (consumed only by legacy `build_test_list()`) |
-| `add_test()` | SHARED | Called from `get_testpy_test()` |
-| `run()` | LEGACY-ONLY | Override of `TestSuite.run()`, only called from `test.py:520` |
+| Method / Attribute | Category | Status | Justification |
+|--------------------|----------|--------|---------------|
+| `__init__()` | SHARED | 🔄 REMAINING | Called via `opt_create()` |
+| `get_cluster_factory()` | SHARED | 🔄 REMAINING | Called in `__init__()`; cluster pool used by conftest fixtures |
+| `pattern` (property) | SHARED | 🔄 REMAINING | Required abstract property |
+| `add_test()` | SHARED | 🔄 REMAINING | Called from `get_testpy_test()` |
+| `run()` | LEGACY-ONLY | ✅ REMOVED | Override of `TestSuite.run()`, only called from `test.py` |
 
 ### `PythonTest` Class
 
-| Method / Attribute | Category | Justification |
-|--------------------|----------|---------------|
-| `__init__()` | SHARED | Called from `PythonTestSuite.add_test()` |
-| `_prepare_pytest_params()` | LEGACY-ONLY | Called only from `run_ctx()` which will be refactored to build args directly, and `run()` (legacy, already removed) |
-| `reset()` | LEGACY-ONLY | Only called from `TestSuite.run()` chain |
-| `print_summary()` | LEGACY-ONLY | Only called from `test.py:548` |
-| `run_ctx()` | SHARED | Called from `test/cqlpy/conftest.py:45` and `test/scylla_gdb/conftest.py:18` |
-| `run()` | LEGACY-ONLY | Only called from `TestSuite.run()` chain |
+| Method / Attribute | Category | Status | Justification |
+|--------------------|----------|--------|---------------|
+| `__init__()` | SHARED | 🔄 REMAINING | Called from `PythonTestSuite.add_test()` |
+| `_prepare_pytest_params()` | LEGACY-ONLY | 🔄 REMAINING | Called only from `run_ctx()` which will be refactored to build args directly; planned for removal in Phase 4 |
+| `reset()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` chain |
+| `print_summary()` | LEGACY-ONLY | ✅ REMOVED | Only called from `test.py:548` |
+| `run_ctx()` | SHARED | 🔄 REMAINING | Called from `test/cqlpy/conftest.py:45` and `test/scylla_gdb/conftest.py:18`; manages cluster lifecycle (lease from pool, before_test/after_test, teardown) |
+| `run()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` chain |
 
 ### Module-Level Functions
 
-| Function | Category | Justification |
-|----------|----------|---------------|
-| `add_host_option()` | SHARED | Called from 5+ conftest files |
-| `add_cql_connection_options()` | SHARED | Called from 5+ conftest files |
-| `add_s3_options()` | SHARED | Called from 2+ conftest files |
+| Function | Category | Status | Justification |
+|----------|----------|--------|---------------|
+| `add_host_option()` | SHARED | 🔄 REMAINING | Called from 5+ conftest files |
+| `add_cql_connection_options()` | SHARED | 🔄 REMAINING | Called from 5+ conftest files |
+| `add_s3_options()` | SHARED | 🔄 REMAINING | Called from 2+ conftest files |
 
 ---
 
@@ -153,10 +158,10 @@ Each symbol was classified as:
 
 ### `CQLApprovalTestSuite` Class
 
-| Method / Attribute | Category | Justification |
-|--------------------|----------|---------------|
-| `test_file_ext` | LEGACY-ONLY | Only needed to distinguish `.cql` files from `.py`; with `CQLApprovalTestSuite` removed, `test_file_ext` is no longer needed on `PythonTestSuite` either |
-| `pattern` (property) | SHARED | Required abstract property override |
+| Method / Attribute | Category | Status | Justification |
+|--------------------|----------|--------|---------------|
+| `test_file_ext` | LEGACY-ONLY | 🔄 REMAINING | Only needed to distinguish `.cql` files from `.py`; planned for removal in Phase 4 with the entire class |
+| `pattern` (property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 1 — abstract constraint lifted |
 
 `CQLApprovalTestSuite` is an empty subclass that only overrides
 `test_file_ext`.  After Phase 1 removes the legacy pipeline, nothing in
@@ -169,17 +174,17 @@ The entire class and file are planned for removal in Phase 4.
 
 ### `TopologyTestSuite` Class
 
-| Method / Attribute | Category | Justification |
-|--------------------|----------|---------------|
-| `add_test()` | LEGACY-ONLY | After Phase 1 removes `run()`, `add_test()` is a pass-through to `PythonTestSuite.add_test()` with an extra `casename` arg that is always `None` |
-| `junit_tests()` | LEGACY-ONLY | Overrides base method that has no callers |
+| Method / Attribute | Category | Status | Justification |
+|--------------------|----------|--------|---------------|
+| `add_test()` | LEGACY-ONLY | 🔄 REMAINING | After Phase 1 removes `run()`, `add_test()` is a pass-through to `PythonTestSuite.add_test()` |
+| `junit_tests()` | LEGACY-ONLY | ✅ REMOVED | Overrode base method that had no callers |
 
 ### `TopologyTest` Class
 
-| Method / Attribute | Category | Justification |
-|--------------------|----------|---------------|
-| `__init__()` | LEGACY-ONLY | After Phase 1 removes `run()`, `__init__()` is a pass-through to `PythonTest.__init__()` |
-| `run()` | LEGACY-ONLY | Only called from `TestSuite.run()` chain |
+| Method / Attribute | Category | Status | Justification |
+|--------------------|----------|--------|---------------|
+| `__init__()` | LEGACY-ONLY | 🔄 REMAINING | After Phase 1, this is a pass-through to `PythonTest.__init__()` |
+| `run()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` chain |
 
 Both classes are empty pass-throughs after Phase 1 removes `run()` and
 `junit_tests()`.  They add nothing over `PythonTestSuite`/`PythonTest`.
@@ -189,44 +194,23 @@ The entire file is planned for removal in Phase 4, with
 
 ---
 
-## 5. `test/pylib/suite/tool.py`
+## 5. `test/pylib/suite/tool.py` — ✅ FILE DELETED
 
-### `ToolTestSuite` Class
-
-| Method / Attribute | Category | Justification |
-|--------------------|----------|---------------|
-| `__init__()` | SHARED | Called via `opt_create()` |
-| `pattern` (property) | SHARED | Required abstract property override |
-| `add_test()` | SHARED | Called from `get_testpy_test()` |
-
-### `ToolTest` Class
-
-| Method / Attribute | Category | Justification |
-|--------------------|----------|---------------|
-| `__init__()` | SHARED | Called from `ToolTestSuite.add_test()` |
-| `_prepare_pytest_params()` | INTERNAL-LEGACY | Only called from `ToolTest.run()` (no `run_ctx()` equivalent) |
-| `print_summary()` | LEGACY-ONLY | Only called from `test.py:548` |
-| `run()` | LEGACY-ONLY | Only called from `TestSuite.run()` chain |
+`ToolTestSuite` and `ToolTest` had no consumers after all test directories
+migrated from `type: Tool` to `type: Python`.  The `nodetool` directory was
+the last to use `type: Tool`.  The file was deleted and the `__init__.py`
+re-export was removed.
 
 ---
 
-## 6. `test/pylib/suite/run.py`
+## 6. `test/pylib/suite/run.py` — ✅ FILE DELETED
 
-### `RunTestSuite` Class
-
-| Method / Attribute | Category | Justification |
-|--------------------|----------|---------------|
-| `__init__()` | SHARED | Called via `opt_create()` |
-| `add_test()` | SHARED | Called from `get_testpy_test()` |
-| `pattern` (property) | SHARED | Required abstract property override |
-
-### `RunTest` Class
-
-| Method / Attribute | Category | Justification |
-|--------------------|----------|---------------|
-| `__init__()` | SHARED | Called from `RunTestSuite.add_test()` |
-| `print_summary()` | LEGACY-ONLY | Only called from `test.py:548` |
-| `run()` | LEGACY-ONLY | Only called from `TestSuite.run()` chain |
+`RunTestSuite` and `RunTest` had no consumers after all test directories
+migrated from `type: Run` to `type: Python`.  Multiple directories previously
+used `type: Run` (scylla_gdb, alternator, cql-pytest, rest_api, etc.).
+`RunTestSuite`'s only addition over `TestSuite` was `self.scylla_exe`, which
+`PythonTestSuite` already provides.  The file was deleted and the `__init__.py`
+re-export was removed.
 
 ---
 
@@ -234,70 +218,61 @@ The entire file is planned for removal in Phase 4, with
 
 ### Classes
 
-| Item | Lines | Category | Justification |
-|------|-------|----------|---------------|
-| `ThreadsCalculator` | 77-119 | SHARED | Computes `-j`; value used by both `run_pytest()` and legacy loop |
-| `TabularConsoleOutput` | 123-173 | LEGACY-ONLY | Progress printing for legacy pipeline; pytest has its own reporting |
+| Item | Category | Status | Justification |
+|------|----------|--------|---------------|
+| `ThreadsCalculator` | SHARED | 🔄 REMAINING | Computes `-j`; value used by `run_pytest()` |
+| `TabularConsoleOutput` | LEGACY-ONLY | ✅ REMOVED | Progress printing for legacy pipeline; pytest has its own reporting |
 
 ### Functions
 
-| Function | Lines | Category | Justification |
-|----------|-------|----------|---------------|
-| `setup_signal_handlers()` | 176-188 | LEGACY-ONLY | Sets asyncio signal handlers for legacy loop; pytest handles its own signals |
-| `parse_cmd_line()` | 191-354 | SHARED | Most args consumed by both; `--parallel-cases`, `--manual-execution`, `--cluster-pool-size` are legacy-only |
-| `find_tests()` | 357-363 | LEGACY-ONLY | Discovers zero tests (no `suite.yaml` exists) |
-| `run_pytest()` | 365-463 | PYTEST-ONLY | Core pytest pipeline |
-| `run_all_tests()` | 467-533 | MIXED | ~60 lines of async scaffolding are LEGACY-ONLY; only the `run_pytest()` call on lines 503-505 is PYTEST-ONLY |
-| `print_summary()` | 536-560 | SHARED | ~60% of body is LEGACY-ONLY (`failed_tests`, `cancelled_tests`, `TestSuite.test_count()`) |
-| `open_log()` | 563-572 | SHARED | Log file creation |
-| `main()` | 575-638 | MIXED | `find_tests`, `init_testsuite_globals`, `prepare_environment`, `signaled`, `resource_watcher`, `setup_signal_handlers`, `process_coverage` are LEGACY-ONLY |
-| `process_coverage()` | 641-888 | LEGACY-ONLY | 248 lines; iterates `TestSuite.all_tests()` (empty); already non-functional |
+| Function | Category | Status | Justification |
+|----------|----------|--------|---------------|
+| `setup_signal_handlers()` | LEGACY-ONLY | 🔄 REMAINING | Still used in `main()` for signal handling during pytest execution; deferred to Phase 3 |
+| `parse_cmd_line()` | SHARED | 🔄 REMAINING | Most args consumed by both; some are legacy-only |
+| `find_tests()` | LEGACY-ONLY | ✅ REMOVED | Discovered zero tests (no `suite.yaml` exists) |
+| `run_pytest()` | PYTEST-ONLY | 🔄 REMAINING | Core pytest pipeline |
+| `run_all_tests()` | MIXED | 🔄 REMAINING (simplified) | ~60 lines of async scaffolding removed; now only runs `run_pytest()` in executor and cleans up artifacts |
+| `print_summary()` | SHARED | 🔄 REMAINING (simplified) | Removed `failed_tests` and `cancelled_tests` params; now takes only `options`, `failed_pytest_tests`, `total_tests_pytest` |
+| `open_log()` | SHARED | 🔄 REMAINING | Log file creation |
+| `main()` | MIXED | 🔄 REMAINING (simplified) | Removed `find_tests()` call, legacy all_tests() iteration, manual_execution block, and failed/cancelled test collection from all_tests() |
+| `process_coverage()` | LEGACY-ONLY | 🔄 REMAINING | 248 lines; iterates `TestSuite.all_tests()` (empty); already non-functional. Deferred to Phase 3 |
 
-### Summary for test.py
+### Legacy-Only Imports in test.py — Phase 1 Status
 
-| Category | Approximate Lines | Percentage |
-|----------|------------------|------------|
-| LEGACY-ONLY | ~440 | 49% |
-| SHARED | ~260 | 29% |
-| PYTEST-ONLY | ~105 | 12% |
-| Mixed (contains both) | ~100 | 11% |
-
-### Legacy-Only Imports in test.py
-
-| Import | Justification |
-|--------|---------------|
-| `signal` | Only used by `setup_signal_handlers()` |
-| `humanfriendly` | Only used by `process_coverage()` |
-| `treelib` | Only used by `process_coverage()` |
-| `test.pylib.coverage_utils` | Only used by `process_coverage()` |
-| `test.pylib.resource_gather.run_resource_watcher` | Only used in `main()` for resource monitoring during legacy loop |
-| `test.pylib.util.LogPrefixAdapter` | Only used by `process_coverage()` |
-| `output_is_a_tty` (from suite.base) | Only used by `TabularConsoleOutput` |
-| `init_testsuite_globals` (from suite.base) | Legacy infrastructure setup |
-| `prepare_environment` (from suite.base) | Legacy infrastructure setup (pytest has its own via `--test-py-init`) |
-| `SUITE_CONFIG_FILENAME` (from suite.base) | Only used by `find_tests()` |
-| `glob` | **Completely unused** — dead import even in legacy |
-| `itertools` | Used by `process_coverage()` (`itertools.product` at line 650) — not dead |
+| Import | Status | Justification |
+|--------|--------|---------------|
+| `signal` | 🔄 REMAINING | Still used by `setup_signal_handlers()` |
+| `humanfriendly` | 🔄 REMAINING | Used by `process_coverage()` (deferred to Phase 3) |
+| `treelib` | 🔄 REMAINING | Used by `process_coverage()` (deferred to Phase 3) |
+| `test.pylib.coverage_utils` | 🔄 REMAINING | Used by `process_coverage()` (deferred to Phase 3) |
+| `test.pylib.resource_gather.run_resource_watcher` | 🔄 REMAINING | Used in `main()` for resource monitoring |
+| `test.pylib.util.LogPrefixAdapter` | 🔄 REMAINING | Used by `process_coverage()` (deferred to Phase 3) |
+| `output_is_a_tty` (from suite.base) | ✅ REMOVED (from test.py import) | Was only used by `TabularConsoleOutput` |
+| `init_testsuite_globals` (from suite.base) | 🔄 REMAINING | Still called in `main()` |
+| `prepare_environment` (from suite.base) | 🔄 REMAINING | Still called in `main()` |
+| `SUITE_CONFIG_FILENAME` (from suite.base) | ✅ REMOVED (import and constant) | Was only used by `find_tests()` |
+| `glob` | ✅ REMOVED | Completely unused — dead import |
+| `itertools` | 🔄 REMAINING | Used by `process_coverage()` (`itertools.product` at line 509) |
 
 ---
 
 ## 8. `test/pylib/runner.py`
 
-| Code Block | Lines | Category | Justification |
-|------------|-------|----------|---------------|
-| `--test-py-init` option | 86-87 | LEGACY-ONLY | Only passed by `test.py:398` |
-| `--scylla-log-filename` option | 111-113 | LEGACY-ONLY | Only meaningful under test.py; planned for removal in Phase 4 |
-| `print_scylla_log_filename` fixture | 121-132 | LEGACY-ONLY | Depends on `--scylla-log-filename`; planned for removal in Phase 4 |
-| `testpy_test_fixture_scope()` | 135-146 | SHARED | Returns `"module"` when `--test-py-init` is set, `"session"` otherwise; condition will change from `--test-py-init` to `TEST_RUNNER` (cannot be replaced with literal because runpy needs `"session"`) |
-| `testpy_test` fixture | 165-171 | SHARED (simplifiable) | Returns `Test` under test.py, `None` otherwise; would always return `None` |
-| `scylla_binary` fixture | 173-175 | LEGACY-ONLY | Accesses `testpy_test.suite.scylla_exe`; `testpy_test` would always be `None` |
-| `pytest_sessionstart` init block | 194-220 | LEGACY-ONLY | Gated by `--test-py-init` |
-| `pytest_sessionfinish` cleanup | 267-291 | LEGACY-ONLY | Gated by `--test-py-init` |
-| `pytest_configure` logging | 298-321 | LEGACY-ONLY | Gated by `--test-py-init` |
-| `pytest_runtest_makereport` log capture | 382-392 | LEGACY-ONLY | Gated by `--test-py-init` |
-| `SUITE_CONFIG_FILENAME` check | 422 | LEGACY-ONLY | Always fails (no `suite.yaml`); falls through to `TEST_CONFIG_FILENAME` |
+| Code Block | Category | Status | Justification |
+|------------|----------|--------|---------------|
+| `--test-py-init` option | LEGACY-ONLY | 🔄 REMAINING | Still used; deferred to Phase 2 |
+| `--scylla-log-filename` option | LEGACY-ONLY | 🔄 REMAINING | Only meaningful under test.py; planned for removal in Phase 4 |
+| `print_scylla_log_filename` fixture | LEGACY-ONLY | 🔄 REMAINING | Depends on `--scylla-log-filename`; planned for removal in Phase 4 |
+| `testpy_test_fixture_scope()` | SHARED | 🔄 REMAINING | Condition changed in Phase 2 from `--test-py-init` to `TEST_RUNNER`; function kept because runpy needs `"session"` scope |
+| `testpy_test` fixture | SHARED (simplifiable) | 🔄 REMAINING | Deferred to Phase 2 |
+| `scylla_binary` fixture | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |
+| `pytest_sessionstart` init block | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |
+| `pytest_sessionfinish` cleanup | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |
+| `pytest_configure` logging | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |
+| `pytest_runtest_makereport` log capture | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |
+| `SUITE_CONFIG_FILENAME` import and check | LEGACY-ONLY | ✅ REMOVED | Import removed; `from_pytest_node()` now checks only `TEST_CONFIG_FILENAME` |
 
-**Total**: ~120 lines (25%) are test.py-specific.
+**Total remaining**: ~120 lines (25%) are test.py-specific.  Deferred to Phase 2.
 
 ---
 
@@ -305,43 +280,41 @@ The entire file is planned for removal in Phase 4, with
 
 ### `test/cqlpy/conftest.py`
 
-| Code | Lines | Category |
-|------|-------|----------|
-| `host` fixture `else` branch (enters `testpy_test.run_ctx()`) | 44-46 | LEGACY-ONLY |
-| All `scope=testpy_test_fixture_scope` references (~10 fixtures) | various | Scope function kept (condition changes in Phase 2) |
+| Code | Category | Status |
+|------|----------|--------|
+| `host` fixture `else` branch (enters `testpy_test.run_ctx()`) | LEGACY-ONLY | 🔄 REMAINING (deferred to Phase 2) |
+| All `scope=testpy_test_fixture_scope` references (~10 fixtures) | Scope function kept (condition changes in Phase 2) | 🔄 REMAINING |
 
 ### `test/cluster/conftest.py`
 
-| Code | Lines | Category |
-|------|-------|----------|
-| `manager_api_sock_path` fixture `else` branch (starts `ScyllaClusterManager`) | 189-213 | LEGACY-ONLY |
-| `manager` fixture — `get_testpy_test()` call for log path computation | 248-277 | LEGACY-ONLY |
-
-This file has the **deepest coupling**: it instantiates a full `TestSuite` +
-`Test` solely for path string resolution.
+| Code | Category | Status |
+|------|----------|--------|
+| `manager_api_sock_path` fixture `else` branch (starts `ScyllaClusterManager`) | LEGACY-ONLY | 🔄 REMAINING (deferred to Phase 2) |
+| `manager` fixture — `get_testpy_test()` call for log path computation | LEGACY-ONLY | 🔄 REMAINING (deferred to Phase 2) |
 
 ### `test/cql/conftest.py`
 
-| Code | Lines | Category |
-|------|-------|----------|
-| `output_path` fixture (calls `get_testpy_test()` for reject file path) | 78-82 | LEGACY-ONLY |
-| `scope=testpy_test_fixture_scope` on `keyspace` | 64 | Scope function kept (condition changes in Phase 2) |
+| Code | Category | Status |
+|------|----------|--------|
+| `output_path` fixture (calls `get_testpy_test()` for reject file path) | LEGACY-ONLY | 🔄 REMAINING |
+| `scope=testpy_test_fixture_scope` on `keyspace` | Scope function kept (condition changes in Phase 2) | 🔄 REMAINING |
 
 ### `test/nodetool/conftest.py`
 
-| Code | Lines | Category |
-|------|-------|----------|
-| `server_address` fixture `testpy_test is not None` branch (host leasing) | 58-59, 64-65 | LEGACY-ONLY |
+| Code | Category | Status |
+|------|----------|--------|
+| `server_address` fixture `testpy_test is not None` branch (host leasing) | LEGACY-ONLY | 🔄 REMAINING |
 
 ### `test/scylla_gdb/conftest.py`
 
-| Code | Lines | Category |
-|------|-------|----------|
-| `scylla_server` fixture (entire body) | 15-19 | LEGACY-ONLY |
+| Code | Category | Status |
+|------|----------|--------|
+| `scylla_server` fixture (entire body) | LEGACY-ONLY | 🔄 REMAINING |
 
 **This fixture has NO fallback**: it accesses `testpy_test.run_ctx()` without
-a `None` guard.  It will crash with `AttributeError` when run without test.py.
-This is the only conftest that is **broken** in bare pytest mode.
+a `None` guard.  It is only invoked when `testpy_test is not None` (i.e.,
+under `--test-py-init`), so it does not affect bare pytest runs.  This needs
+to be addressed in Phase 2.
 
 ### `test/alternator/conftest.py`, `test/rest_api/conftest.py`
 
@@ -357,25 +330,38 @@ Only import utility functions (`add_host_option`, `add_cql_connection_options`,
 
 ## 10. Aggregate Summary
 
-### By Category
+### Phase 1 Removals
+
+| File | Items Removed | Lines Removed |
+|------|---------------|---------------|
+| `base.py` | `SUITE_CONFIG_FILENAME`, `FLAKY_RETRIES`, `toxiproxy_id_gen`, `TestSuite.run()`, `junit_tests()`, `boost_tests()`, `build_test_list()`, `add_test_list()`, `Test.reset()`, `Test.run()`, `Test.setup()`, `Test.check_log()`, `run_test()`, import `asyncio`, import `TOP_SRC_DIR`, import `get_resource_gather` | 241 |
+| `python.py` | `PythonTestSuite.run()`, `PythonTest.reset()`, `PythonTest.run()`, imports `run_test` | 24 |
+| `topology.py` | `TopologyTestSuite.junit_tests()`, `TopologyTest.run()`, imports `TYPE_CHECKING`, `get_cluster_manager`, `Test`, `run_test`, `argparse` | 37 |
+| `tool.py` | ✅ FILE DELETED — `ToolTest.run()` + entire file | 43 |
+| `run.py` | ✅ FILE DELETED — `RunTest.run()` + entire file | 37 |
+| `runner.py` | `SUITE_CONFIG_FILENAME` import, `suite.yaml` check in `from_pytest_node()` | 3 |
+| `test.py` | `TabularConsoleOutput`, `find_tests()`, `output_is_a_tty` import, `SUITE_CONFIG_FILENAME` import, `glob` import, `Any`/`TYPE_CHECKING`/`List` imports; simplified `run_all_tests()`, `print_summary()`, `main()` | 160 |
+| `test_suite_base.py` | `SUITE_CONFIG_FILENAME` import, `read_log` import, `TestReadLog` class | 24 |
+| `test_suite_subclasses.py` | `test_junit_tests_empty` test | 5 |
+| **Total** | | **552 lines removed** |
+
+### By Category (Remaining)
 
 | Category | Count | Notable Items |
 |----------|-------|---------------|
-| LEGACY-ONLY | 30 (suite/) + ~440 lines (test.py) + ~120 lines (runner.py) + ~80 lines (conftest files) | `run_test()`, `process_coverage()`, `TabularConsoleOutput`, `TestSuite.run()`, all `Test.run()` implementations |
-| ALREADY-DEAD | 4 symbols | `boost_tests()`, `junit_tests()` (base), `Test.setup()`, `toxiproxy_id_gen` |
-| SHARED | ~32 (suite/) + ~260 lines (test.py) | `opt_create()`, `get_testpy_test()`, `prepare_environment()`, `add_test()`, `run_ctx()` |
+| LEGACY-ONLY (remaining) | ~440 lines (test.py) + ~120 lines (runner.py) + ~80 lines (conftest files) | `process_coverage()`, `setup_signal_handlers()`, `--test-py-init` guards, conftest legacy branches |
+| SHARED | ~32 (suite/) + ~260 lines (test.py) | `opt_create()`, `get_testpy_test()`, `prepare_environment()`, `add_test()` |
 
-### Largest Dead Code Blocks
+### Largest Remaining Dead Code Blocks
 
-| Block | File | Lines | Size |
-|-------|------|-------|------|
-| `process_coverage()` | `test.py` | 641-888 | 248 lines |
-| `run_test()` | `base.py` | 397-508 | 112 lines |
-| `run_all_tests()` async scaffolding | `test.py` | 467-533 | ~60 lines |
-| `TabularConsoleOutput` | `test.py` | 123-173 | 51 lines |
-| `manager_api_sock_path` else branch | `cluster/conftest.py` | 189-213 | ~25 lines |
+| Block | File | Size | Phase |
+|-------|------|------|-------|
+| `process_coverage()` | `test.py` | 248 lines | Phase 3 |
+| `--test-py-init` guarded code | `runner.py` | ~120 lines | Phase 2 |
+| `run_all_tests()` async scaffolding (remaining) | `test.py` | ~14 lines | Phase 3 |
+| `manager_api_sock_path` else branch | `cluster/conftest.py` | ~25 lines | Phase 2 |
 
-### Fixture Scope: `testpy_test_fixture_scope`
+### Fixture Scope: `testpy_test_fixture_scope` (Remaining — Phase 2)
 
 ~40+ fixtures across 7 conftest files use `testpy_test_fixture_scope` as their
 scope parameter.  The function's condition needs to change from `--test-py-init`
@@ -388,16 +374,12 @@ The function cannot be replaced with a literal because both scopes are needed.
 No changes to conftest files are required -- only the function's internal
 condition changes while its call sites remain the same.
 
-### Dead Import: `SUITE_CONFIG_FILENAME`
+### Dead Import: `SUITE_CONFIG_FILENAME` — ✅ FULLY REMOVED
 
-The constant `SUITE_CONFIG_FILENAME = "suite.yaml"` is referenced in three
-code locations:
-1. `test.py:359` — `find_tests()` globs for it, finds nothing.
-2. `runner.py:422` — `TestSuiteConfig.from_pytest_node` checks for it, always
-   fails, falls through to `TEST_CONFIG_FILENAME`.
-3. `base.py:600` — `get_testpy_test()` tries it first, catches
-   `FileNotFoundError`, falls back to `TEST_CONFIG_FILENAME`.
-
-Since no `suite.yaml` files exist, this constant and all code paths that
-reference it are functionally dead.  Every lookup is a wasted filesystem check
-that always falls through to the `test_config.yaml` path.
+The constant `SUITE_CONFIG_FILENAME = "suite.yaml"` and all references to it
+have been removed in Phase 1:
+1. ~~`test.py` — `find_tests()` globbed for it~~ → removed with `find_tests()`.
+2. ~~`runner.py` — `TestSuiteConfig.from_pytest_node` checked for it~~ → now
+   checks only `TEST_CONFIG_FILENAME`.
+3. ~~`base.py` — `get_testpy_test()` tried it first~~ → now uses
+   `TEST_CONFIG_FILENAME` directly.

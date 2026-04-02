@@ -31,7 +31,6 @@ from test import ALL_MODES, DEBUG_MODES, TEST_RUNNER, TOP_SRC_DIR, TESTPY_PREPAR
 from test.pylib.scylla_cluster import merge_cmdline_options
 from test.pylib.skip_reason_plugin import skip_marker
 from test.pylib.suite.base import (
-    SUITE_CONFIG_FILENAME,
     PYTEST_TESTS_LOGS_FOLDER,
     TestSuite,
     get_testpy_test,
@@ -420,10 +419,9 @@ class TestSuiteConfig:
 
     @classmethod
     def from_pytest_node(cls, node: _pytest.nodes.Node) -> TestSuiteConfig | None:
-        for config_file in (node.path / SUITE_CONFIG_FILENAME, node.path / TEST_CONFIG_FILENAME,):
-            if config_file.is_file():
-                suite = cls(config_file=config_file)
-                break
+        config_file = node.path / TEST_CONFIG_FILENAME
+        if config_file.is_file():
+            suite = cls(config_file=config_file)
         else:
             if node.parent is None:
                 return None

@@ -19,7 +19,7 @@ from scripts import coverage
 from test import path_to
 from test.pylib.pool import Pool
 from test.pylib.scylla_cluster import ScyllaCluster, ScyllaServer, merge_cmdline_options, get_current_version_description
-from test.pylib.suite.base import Test, TestSuite, read_log, run_test
+from test.pylib.suite.base import Test, TestSuite, read_log
 from test.pylib.util import LogPrefixAdapter
 
 if TYPE_CHECKING:
@@ -153,20 +153,11 @@ class PythonTestSuite(TestSuite):
         test = PythonTest(self.next_id((shortname, self.suite_key)), shortname, casename, self)
         self.tests.append(test)
 
-    async def run(self, test: 'Test', options: argparse.Namespace):
-        if not os.access(self.scylla_exe, os.F_OK):
-            raise FileNotFoundError(f"{self.scylla_exe} does not exist.")
-        if not os.access(self.scylla_exe, os.X_OK):
-            raise PermissionError(f"{self.scylla_exe} is not executable.")
-        return await super().run(test, options)
-
-
 class PythonTest(Test):
     """Run a pytest collection of cases against a standalone Scylla"""
 
     def __init__(self, test_no: int, shortname: str, casename: str, suite) -> None:
         super().__init__(test_no, shortname, suite)
-        self.path = "python"
         self.core_args = ["-m", "pytest"]
         self.casename = casename
         self.xmlout = self.suite.log_dir / "xml" / f"{self.uname}.xunit.xml"
@@ -212,14 +203,6 @@ class PythonTest(Test):
         if self.casename is not None:
             arg += '::' + self.casename
         self.args.append(arg)
-
-    def reset(self) -> None:
-        """Reset the test before a retry, if it is retried as flaky"""
-        super().reset()
-        self.server_log = None
-        self.server_log_filename = None
-        self.is_before_test_ok = False
-        self.is_after_test_ok = False
 
     def print_summary(self) -> None:
         print("Output of {} {}:".format(self.path, " ".join(self.args)))
@@ -282,10 +265,6 @@ class PythonTest(Test):
                 await self.suite.clusters.put(cluster, is_dirty=cluster.is_dirty)
                 logger.info("Test %s %s", self.uname, "succeeded" if self.success else "failed ")
 
-    async def run(self, options: argparse.Namespace) -> Test:
-        async with self.run_ctx(options=options):
-            self.success = await run_test(test=self, options=options, env=self.suite.scylla_env)
-        return self
 
 
 # Use cache to execute this function once per pytest session.

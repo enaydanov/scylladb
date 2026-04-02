@@ -208,29 +208,61 @@ reference `./test.py` but this is Seastar's own test runner, not ScyllaDB's.
 
 ## 4. Step-by-Step Migration Plan
 
-### Phase 1: Clean Up Dead Code (no behavioral change)
+### Phase 1: Clean Up Dead Code (no behavioral change) — ✅ COMPLETE
 
-These changes can be made immediately with no risk:
+Phase 1 has been completed.  9 files were modified, removing 552 lines of dead
+code with 19 lines of insertions.  246 framework unit tests pass.
 
-1. **Remove dead imports in test.py**: `glob`, `itertools`.
+**What was removed:**
 
-2. **Remove `SUITE_CONFIG_FILENAME` fallback paths**: In `runner.py:422` and
-   `base.py:600`, remove the `suite.yaml` check and go directly to
-   `test_config.yaml`.  Delete `SUITE_CONFIG_FILENAME` constant.
+1. ✅ **Dead imports in test.py**: `glob`, `output_is_a_tty`,
+   `SUITE_CONFIG_FILENAME`, `Any`/`TYPE_CHECKING`/`List` imports.
 
-3. **Remove already-dead symbols**: `TestSuite.boost_tests()`,
-   `TestSuite.junit_tests()` (base), `Test.setup()`, `toxiproxy_id_gen`.
+2. ✅ **`SUITE_CONFIG_FILENAME` fallback paths**: In `runner.py`,
+   `from_pytest_node()` now checks only `TEST_CONFIG_FILENAME`.  In `base.py`,
+   `get_testpy_test()` uses `TEST_CONFIG_FILENAME` directly.  The
+   `SUITE_CONFIG_FILENAME` constant was deleted from `base.py`.
 
-4. **Remove `find_tests()` in test.py**: It discovers nothing.  Remove the
-   call in `main()` and the `await find_tests(options)` line.
+3. ✅ **Already-dead symbols**: `TestSuite.boost_tests()`,
+   `TestSuite.junit_tests()` (base), `TopologyTestSuite.junit_tests()`,
+   `Test.setup()`, `toxiproxy_id_gen`.
 
-5. **Remove legacy-only symbols in suite framework** that are not part of the
-   ABC contract: `TestSuite.FLAKY_RETRIES`, `TestSuite.test_count()`,
-   `TestSuite.all_tests()`, `TestSuite.build_test_list()`,
-   `TestSuite.add_test_list()`, `read_log()`, `run_test()`,
-   `Test.reset()`, `Test.failed`, `Test.did_not_run`, `Test.check_log()`,
-   all `Test.run()` implementations, all `Test.print_summary()`
-   implementations, `PythonTestSuite.run()`.
+4. ✅ **`find_tests()` in test.py**: Removed entirely.  The call in `main()`
+   was deleted.
+
+5. ✅ **Legacy execution pipeline**: `TestSuite.run()`,
+   `TestSuite.FLAKY_RETRIES`, `TestSuite.build_test_list()`,
+   `TestSuite.add_test_list()`, `run_test()` (112 lines), `Test.reset()`,
+   `Test.run()` (abstract), `Test.check_log()`, all concrete `Test.run()`
+   implementations (`PythonTest`, `TopologyTest`, `ToolTest`, `RunTest`),
+   `PythonTest.reset()`, `PythonTestSuite.run()`.
+
+6. ✅ **test.py simplification**: `TabularConsoleOutput` class removed.
+   `run_all_tests()` simplified to just run `run_pytest()` in executor +
+   artifact cleanup.  `print_summary()` simplified (removed `failed_tests`
+   and `cancelled_tests` params).  `main()` simplified (removed `find_tests()`
+   call, manual_execution block, legacy test iteration).
+
+7. ✅ **Dead suite files**: `tool.py` and `run.py` deleted entirely —
+   `ToolTestSuite`/`ToolTest` and `RunTestSuite`/`RunTest` had no consumers
+   since all directories migrated to `type: Python`.  `self.path` attribute
+   removed from `Test` and `PythonTest` (never read by any production code).
+
+**What was intentionally kept:**
+
+- `Test.print_summary()` (abstract) and all subclass implementations — the
+  `@abstractmethod` constraint requires implementations in all instantiated
+  subclasses.  `read_log()` was kept as a dependency of `print_summary()`.
+- `TestSuite.test_count()`, `TestSuite.all_tests()` — still called from
+  `test.py` (deferred to Phase 3).
+- `Test.failed`, `Test.did_not_run` properties — still read from `test.py`
+  (deferred to Phase 3).
+- `pattern` abstract property — required by ABC contract (deferred to Phase 4).
+- `PythonTest.run_ctx()` — cluster lifecycle context manager, still called
+  by `test/cqlpy/conftest.py` and `test/scylla_gdb/conftest.py` under
+  `--test-py-init` (deferred to Phase 2).
+- `_prepare_pytest_params()` on all test classes — still called by conftest
+  fixtures.
 
 ### Phase 2: Make Runner Self-Sufficient
 
@@ -361,7 +393,7 @@ communication):
 
 | Phase | Effort | Risk |
 |-------|--------|------|
-| Phase 1: Dead code removal | 1-2 days | Very low (no behavioral change) |
+| Phase 1: Dead code removal | ✅ Done | Very low (no behavioral change) |
 | Phase 2: Runner self-sufficiency | 2-3 days | Low (remove guards, change scope condition) |
 | Phase 3: Simplify test.py | 2-3 days | Medium (CI integration) |
 | Phase 4: Suite framework cleanup | 1-2 days | Low |

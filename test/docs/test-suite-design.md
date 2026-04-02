@@ -27,27 +27,24 @@ and executing ScyllaDB integration and functional tests across multiple build mo
 Key characteristics:
 
 - **YAML-driven**: each test directory declares its suite type and configuration in
-  a `test_config.yaml` file (legacy name: `suite.yaml`).
+  a `test_config.yaml` file.
 - **Dynamic dispatch**: a factory method reads the YAML `type` field and instantiates
   the correct `TestSuite` subclass at runtime via dynamic import.
 - **Three execution modes**: the `test.py` wrapper script, bare pytest with
   the `test/pylib/runner.py` plugin, and `run.py` scripts that start Scylla
   externally and invoke pytest with `SCYLLA_TEST_RUNNER=runpy`.
-- **Async-first**: all test execution is built on `asyncio`.
 - **Cluster pooling**: Python-based test suites maintain a pool of reusable
   ScyllaDB cluster instances to amortize startup cost.
 
-The framework lives in 7 files under `test/pylib/suite/`:
+The framework lives in 5 files under `test/pylib/suite/`:
 
 | File               | Contents                                                |
 |--------------------|---------------------------------------------------------|
-| `__init__.py`      | Re-exports all 5 concrete suite classes                 |
+| `__init__.py`      | Re-exports concrete suite classes                       |
 | `base.py`          | `TestSuite` (ABC), `Test` (ABC), module-level utilities |
 | `python.py`        | `PythonTestSuite`, `PythonTest`                         |
 | `cql_approval.py`  | `CQLApprovalTestSuite`                                  |
 | `topology.py`      | `TopologyTestSuite`, `TopologyTest`                     |
-| `tool.py`          | `ToolTestSuite`, `ToolTest`                             |
-| `run.py`           | `RunTestSuite`, `RunTest`                               |
 
 ---
 
@@ -62,9 +59,6 @@ TestSuite (ABC)                       base.py
   |     |
   |     +-- CQLApprovalTestSuite      cql_approval.py
   |     +-- TopologyTestSuite         topology.py
-  |
-  +-- ToolTestSuite                   tool.py
-  +-- RunTestSuite                    run.py
 
 
 Test (abstract, not ABC)              base.py
@@ -72,13 +66,14 @@ Test (abstract, not ABC)              base.py
   +-- PythonTest                      python.py   (intermediate base)
   |     |
   |     +-- TopologyTest              topology.py
-  |
-  +-- ToolTest                        tool.py
-  +-- RunTest                         run.py
 ```
 
 `PythonTestSuite` and `PythonTest` are the key intermediate base classes, shared
 by `CQLApprovalTestSuite`, `TopologyTestSuite`, and `TopologyTest`.
+
+The `ToolTestSuite`/`ToolTest` and `RunTestSuite`/`RunTest` classes have been
+deleted — all directories that previously used `type: Tool` or `type: Run`
+now use `type: Python`.
 
 ### 2.2 Factory Pattern
 
@@ -111,22 +106,22 @@ import in `opt_create()` can resolve them:
 
 ## 3. Configuration Schema (`test_config.yaml`)
 
-Each test directory may contain a `test_config.yaml` (or legacy `suite.yaml`)
-that configures the suite. The framework walks up the directory tree from the test
-file to find the nearest config.
+Each test directory may contain a `test_config.yaml` that configures the suite.
+The framework walks up the directory tree from the test file to find the nearest
+config.
 
 ### 3.1 Complete Key Reference
 
 | Key | Type | Default | Consumed By | Description |
 |-----|------|---------|-------------|-------------|
-| `type` | `string` | (required) | `TestSuite.opt_create()` | Suite class selector. Values: `Python`, `Topology`, `Approval`, `Run`, `Tool`. |
+| `type` | `string` | (required) | `TestSuite.opt_create()` | Suite class selector. Values: `Python`, `Topology`, `Approval`. |
 | `disable` | `list[string]` | `[]` | `TestSuite.__init__` | Test shortnames to unconditionally disable. |
 | `skip_in_<mode>` | `list[string]` | `[]` | `TestSuite.__init__` | Tests to skip in a specific build mode. `<mode>` is one of `debug`, `release`, `dev`, `sanitize`, `coverage`. |
 | `skip_in_debug_modes` | `list[string]` | `[]` | `TestSuite.__init__` | Tests to skip in all debug modes (as defined by the `DEBUG_MODES` constant). |
 | `run_in_<mode>` | `list[string]` | `[]` | `TestSuite.__init__` | Tests that should only run in a specific mode. A test listed in `run_in_X` but not in `run_in_<current_mode>` is disabled. |
 | `run_first` | `list[string]` | `[]` | `TestSuite.__init__` | Tests to prioritize (sorted to the front of the execution list). |
 | `no_parallel_cases` | `list[string]` | `[]` | `TestSuite.__init__` | Tests whose cases should not run in parallel. |
-| `flaky` | `list[string]` | `[]` | `TestSuite.__init__` | Tests that are known-flaky and should be retried on failure (up to `FLAKY_RETRIES`). |
+| `flaky` | `list[string]` | `[]` | `TestSuite.__init__` | Tests that are known-flaky (retained in config for historical tracking). |
 | `coverage` | `bool` | `true` | `TestSuite.need_coverage()` | Whether to enable code coverage for this suite. |
 | `cluster` | `mapping` | `{"initial_size": 1}` | `PythonTestSuite.__init__` | Cluster configuration. Sub-key `initial_size` controls the number of nodes. |
 | `pool_size` | `int` | `2` | `PythonTestSuite.__init__` | Number of clusters in the reuse pool. Overridden by CLI `--cluster-pool-size` or env `CLUSTER_POOL_SIZE`. |
@@ -134,7 +129,6 @@ file to find the nearest config.
 | `extra_scylla_cmdline_options` | `list[string]` or `string` | `[]` | `PythonTestSuite.get_cluster_factory()` | Additional Scylla command-line flags. Merged with test-level and CLI-level options. |
 | `extra_scylla_config_options` | `mapping` | `{}` | `PythonTestSuite.get_cluster_factory()` | Additional Scylla config file options. Merged with defaults and test-level config. |
 | `prepare_cql` | `string` or `list[string]` | `null` | `PythonTest.run_ctx()` | CQL statements to execute once per cluster before tests run. |
-| `launcher` | `string` | `"pytest"` | `ToolTest.__init__` | Command to use as the test launcher. First token is the executable; remaining tokens become initial arguments. |
 | `custom_args` | `mapping[string, list[string]]` | `{}` | (Boost/unit suites, outside this framework) | Per-test custom arguments. Not consumed by the Python suite classes. |
 
 ### 3.2 Disabled-Test Resolution Algorithm
@@ -165,7 +159,6 @@ Tests not mentioned in any `run_in_*` directive run in all modes.
 | `suites` | `dict[str, TestSuite]` | Global registry of all suite instances, keyed by `"path/mode"`. Serves as a singleton cache. |
 | `artifacts` | `ArtifactRegistry` | Global artifact/cleanup registry. Set once by `init_testsuite_globals()`. |
 | `hosts` | `HostRegistry` | Global host/IP registry for leasing network addresses. Set once by `init_testsuite_globals()`. |
-| `FLAKY_RETRIES` | `int` (5) | Maximum retry count for flaky tests. |
 | `_next_id` | `defaultdict(int)` | Per-test-key monotonic counter for generating unique IDs. Keyed by tuples whose shape varies by suite type. |
 
 ### 4.2 Constructor
@@ -183,7 +176,7 @@ Sets the following instance state:
 | `options` | CLI options namespace |
 | `mode` | Build mode string |
 | `suite_key` | `os.path.join(path, mode)` |
-| `tests` | Empty list, populated later by `add_test_list()` |
+| `tests` | Empty list, populated later by `add_test()` |
 | `pending_test_count` | `0`, incremented as tests are added |
 | `n_failed` | `0`, incremented as tests fail |
 | `run_first_tests` | Set from `cfg["run_first"]` |
@@ -219,44 +212,6 @@ described in Section 2.2.
 **`all_tests() -> Iterable[Test]`** (static): chains all tests from all
 registered suites into a single iterable.
 
-**`build_test_list() -> list[str]`**: globs the suite directory using `self.pattern`
-(supports both single string and list of patterns via `rglob`). Returns a list
-of test shortnames (relative paths with extensions stripped).
-
-**`add_test_list()`** (async): the main test discovery and registration pipeline:
-
-1. Calls `build_test_list()` to discover test files.
-2. Sorts the list, with `run_first_tests` promoted to the front.
-3. For each discovered test:
-   - Skips if the shortname is in `disabled_tests`.
-   - Skips if any `options.skip_patterns` substring-matches the full test name.
-   - If `options.name` filters are set, checks for a match. Supports `::` syntax
-     to select specific cases within a test file (e.g. `testname::CaseName`).
-     A `::*` suffix matches all cases.
-   - Creates an async task that calls `self.add_test()` `options.repeat` times
-     and increments `pending_test_count` for each.
-4. Different tests are added concurrently via `asyncio.create_task`, but repeats
-   of the same test are added sequentially (for cache population benefits).
-5. On cancellation, all pending tasks are cancelled and awaited.
-
-**`run(test, options)`** (async): the test execution orchestrator:
-
-1. Sets `test.started = True`.
-2. Enters a retry loop (up to `FLAKY_RETRIES` iterations).
-3. On retry (i > 1), marks `test.is_flaky_failure = True` and calls `test.reset()`.
-4. Calls `await test.run(options)`.
-5. Breaks on success, non-flaky test, or cancellation.
-6. In `finally`: decrements `pending_test_count`, increments `n_failed` if the
-   test failed, and when the last test in the suite finishes
-   (`pending_test_count == 0`), calls `artifacts.cleanup_after_suite()`.
-7. On `CancelledError`: sets `test.is_cancelled = True` and re-raises.
-
-**`junit_tests()`**: returns `self.tests`. Subclasses may override to exclude
-tests from the consolidated JUnit report.
-
-**`boost_tests()`**: returns empty list. Exists for compatibility with
-non-Python (Boost) suites outside this framework.
-
 **`need_coverage() -> bool`**: returns `True` if coverage is enabled in options,
 the current mode is in the coverage modes, and the suite config does not set
 `coverage: false`.
@@ -278,7 +233,6 @@ Sets the following instance state:
 | Variable | Derivation |
 |----------|------------|
 | `id` | The `test_no` parameter |
-| `path` | Empty string (subclasses override) |
 | `args` | Empty list (subclasses populate) |
 | `core_args` | Empty list (program-required args regardless of test) |
 | `valid_exit_codes` | `[0]` |
@@ -300,32 +254,14 @@ Sets the following instance state:
 
 ### 5.2 Abstract Interface
 
-**`run(options: argparse.Namespace) -> Test`** (async): must execute the test
-and set `self.success`.
-
 **`print_summary()`**: must print human-readable test results to stdout.
 
 ### 5.3 Concrete Methods
-
-**`reset()`**: resets `success`, `time_start`, `time_end` to their initial
-values. Called before flaky retries. Subclasses may extend (call `super().reset()`).
 
 **`failed`** (property): `True` if the test was started, did not succeed, and was
 not cancelled.
 
 **`did_not_run`** (property): `True` if the test was never started or was cancelled.
-
-**`setup(port, options) -> (cleanup_fn, failure_injection_desc, test_env)`** (async):
-pre-test setup hook. Returns a 3-tuple:
-- `cleanup_fn`: a callable to invoke unconditionally after test completion.
-- `failure_injection_desc`: a string describing any failure injection, or `None`.
-- `test_env`: a dict of additional environment variables for the test.
-
-Default implementation returns a no-op lambda, `None`, and an empty dict.
-
-**`check_log(trim: bool)`**: post-test log processing. If `trim` is `True`,
-deletes the log file (used when logs of successful tests are not preserved).
-Subclasses can override for additional processing (e.g. XML output validation).
 
 ---
 
@@ -393,9 +329,6 @@ Returns an async `create_cluster` function that:
   naming conventions).
 - **`add_test(shortname, casename)`**: creates a `PythonTest` with ID key
   `(shortname, self.suite_key)`.
-- **`run(test, options)`**: validates that `scylla_exe` exists and is executable
-  before delegating to `super().run()`. Raises `FileNotFoundError` or
-  `PermissionError` on validation failure.
 
 #### Class-Level Constants
 
@@ -441,56 +374,9 @@ including cluster pool, scylla executable, and coverage env setup.
   Uses a different ID key tuple: `(shortname, 'topology', self.mode)` instead of
   `(shortname, self.suite_key)`. This means topology test IDs are shared across
   suite paths but unique per mode.
-- **`junit_tests()`**: returns an empty list `[]`. This excludes topology tests
-  from the consolidated JUnit XML report, preventing double-counting in CI systems
-  (topology tests generate their own JUnit output via pytest).
 
 ---
 
-### 6.4 ToolTestSuite
-
-**Location:** `tool.py`
-**Inherits from:** `TestSuite` (directly)
-**Role:** Runs Python pytest tests for tools that do not need a Scylla cluster.
-
-The simplest standalone suite. The constructor calls `super().__init__()` with no
-additional initialization -- no `scylla_exe`, no cluster pool, no coverage env.
-
-#### Overridden Methods
-
-- **`pattern`**: returns `["*_test.py", "test_*.py"]` (two patterns; notably
-  omits the `*_tests.py` pattern that `PythonTestSuite` includes).
-- **`add_test(shortname, casename)`**: creates a `ToolTest` (the `casename`
-  parameter is accepted but not forwarded to the test constructor).
-
----
-
-### 6.5 RunTestSuite
-
-**Location:** `run.py`
-**Inherits from:** `TestSuite` (directly)
-**Role:** Runs tests that have a `run` shell script as their entry point.
-
-#### Constructor Additions
-
-Beyond the base class:
-
-- **`scylla_exe`**: path to the Scylla executable (same as `PythonTestSuite`).
-- **`scylla_env`**: environment dict with `SCYLLA` set. Starts as a copy of
-  `base_env`. If the mode is `"coverage"`, the dict is **replaced entirely** with
-  the return value of `coverage.env()` (not merged like in `PythonTestSuite`).
-  This means `base_env` entries such as `LLVM_PROFILE_FILE` are lost in coverage
-  mode. After the coverage handling, `SCYLLA` is set to the executable path.
-  No cluster pool is created.
-
-#### Overridden Methods
-
-- **`pattern`**: returns the literal string `"run"`, matching files named
-  exactly `run` in the suite directory.
-- **`add_test(shortname, casename)`**: creates a `RunTest` (the `casename`
-  parameter is accepted but not forwarded).
-
----
 
 ## 7. Concrete Test Classes
 
@@ -550,14 +436,8 @@ for a pool-based test:
    info about whether the failure was pre-test or post-test.
 10. In `finally`: returns the cluster to the pool via `pool.put(cluster, is_dirty)`.
 
-**`reset()`**: extends `super().reset()` to also reset `server_log`,
-`server_log_filename`, `is_before_test_ok`, `is_after_test_ok`.
-
 **`print_summary()`**: prints the test command and output log. If `server_log`
 is set (non-None), also prints the first server's log.
-
-**`run(options)`**: enters `run_ctx()`, then calls `run_test()` with the suite's
-`scylla_env`.
 
 ---
 
@@ -572,80 +452,6 @@ constructor).
 
 The constructor simply delegates to `super().__init__()`.
 
-#### Overridden `run(options)`
-
-Completely replaces `PythonTest.run()` -- does **not** use `run_ctx()` or the
-pool. Instead:
-
-1. Calls `_prepare_pytest_params(options)`.
-2. Enters `get_cluster_manager(uname, suite.clusters, log_dir)` async context
-   manager, which provides a `manager` object.
-3. Inserts topology-specific arguments at the front of the args list:
-   - `--manager-api=<socket_path>`
-   - `--skip-internet-dependent-tests` (if `options.skip_internet_dependent_tests`)
-   - `--artifacts_dir_url=<url>` (if `options.artifacts_dir_url`)
-4. Starts the manager via `await manager.start()`.
-5. Calls `run_test(self, options, env=suite.scylla_env)`.
-6. On exception: captures `manager.cluster.read_server_log()` and
-   `server_log_filename()`. If `manager.is_before_test_ok` is false, prints the
-   server log and re-raises (cluster is broken, cannot continue).
-
----
-
-### 7.3 ToolTest
-
-**Location:** `tool.py`
-**Inherits from:** `Test`
-**Role:** Runs tool-mode pytest tests that do not need a Scylla cluster.
-
-#### Constructor
-
-- **`path`**: extracted from `cfg["launcher"]` (default `"pytest"`). Takes the
-  first whitespace-delimited token.
-- **`xmlout`**: JUnit XML output path.
-
-#### Key Methods
-
-**`_prepare_pytest_params(options)`**: builds pytest args similar to `PythonTest`
-but simpler:
-- Extracts additional launcher args from `cfg["launcher"]` (tokens after the first).
-- Includes `-s`, `-vv`, `--log-level=DEBUG`, JUnit config, `--mode`, `--run_id`.
-- `--gather-metrics`, `--alluredir`, markers support.
-- Appends the test file path as `suite_path / shortname + ".py"`.
-
-**`print_summary()`**: prints only the command line (no log content). This is
-intentionally minimal compared to other test classes.
-
-**`run(options)`**: calls `_prepare_pytest_params()`, creates a logger, calls
-`run_test()` directly (no cluster management, no environment overlay).
-
----
-
-### 7.4 RunTest
-
-**Location:** `run.py`
-**Inherits from:** `Test`
-**Role:** Runs shell-script-based tests.
-
-#### Constructor
-
-- **`path`**: set to `suite_path / shortname` (the actual script file path).
-- **`xmlout`**: JUnit XML output path.
-- **`args`**: built directly in the constructor (not deferred to a
-  `_prepare_pytest_params` method):
-  - `--junit-xml`, `-vv`, `-o`, `junit_suite_name`
-  - `--alluredir` and `--allure-no-capture` (if not saving logs)
-
-#### Overridden Methods
-
-**`print_summary()`**: prints the command line and the full log output (via
-`read_log()`).
-
-**`run(options)`**: calls `run_test()` with two distinctive settings:
-- `gentle_kill=True`: on timeout or cancellation, sends SIGTERM instead of
-  SIGKILL, giving the script a chance to clean up.
-- `env=suite.scylla_env`: passes the Scylla environment variables.
-
 ---
 
 ## 8. Module-Level Infrastructure
@@ -659,47 +465,7 @@ them to `TestSuite.artifacts` and `TestSuite.hosts` respectively. Must be called
 once before any suite is used. Called from both `test.py` and `runner.py` during
 session setup.
 
-### 8.2 Test Execution Engine (`run_test`)
-
-The core async function that spawns a test as a subprocess:
-
-**Signature:** `async def run_test(test, options, gentle_kill=False, env=dict()) -> bool`
-
-**Behavior:**
-
-1. Creates the log directory and opens the log file for binary writing.
-2. Configures sanitizer options:
-   - `UBSAN_OPTIONS`: `halt_on_error=1`, `abort_on_error=1`, suppressions file,
-     merged with any existing `UBSAN_OPTIONS` env var.
-   - `ASAN_OPTIONS`: `disable_coredump=0`, `abort_on_error=1`,
-     `detect_stack_use_after_return=1`, merged with existing env var.
-3. Sets up a cgroup for resource monitoring via `get_resource_gather()`.
-4. Writes a header to the log (sanitizer env, command line).
-5. Records `test.time_start`.
-6. Constructs the process path and args. If `options.cpus` is set, wraps the
-   command in `taskset -c <cpus>`.
-7. Builds the process environment: inherits `os.environ`, adds sanitizer options,
-   sets `TMPDIR` to `suite.log_dir`, sets `SCYLLA_TEST_ENV=yes` and
-   `SCYLLA_TEST_RUNNER=test.py`, then merges the caller-provided `env` dict.
-8. Spawns via `asyncio.create_subprocess_exec()` with stdout/stderr directed to
-   the log file. Uses `preexec_fn` to place the process in the cgroup.
-9. Waits with `options.timeout` via `asyncio.wait_for(process.communicate(), ...)`.
-10. Records `test.time_end`.
-11. Collects resource metrics from the cgroup monitor.
-12. Checks `process.returncode` against `test.valid_exit_codes`. If invalid,
-    writes metrics and returns `False`.
-13. Calls `test.check_log(trim)` for post-processing. If it raises, prints an
-    error, writes metrics, and returns `False`.
-14. Writes metrics (with success flag) and returns `True`.
-15. On `TimeoutError`: sets `test.is_cancelled`, kills/terminates the process,
-    writes "Test timed out" to the log.
-16. On `CancelledError`: sets `test.is_cancelled`, kills/terminates the process,
-    writes "Test was cancelled" to the log.
-17. On any other exception: writes the error to the log and returns `False`.
-18. If `gentle_kill` is `True`, uses `process.terminate()` (SIGTERM) instead of
-    `process.kill()` (SIGKILL) for timeout/cancellation.
-
-### 8.3 Environment Preparation
+### 8.2 Environment Preparation
 
 **`prepare_environment(tempdir_base, modes, gather_metrics, save_log_on_success, toxiproxy_byte_limit)`**:
 Decorated with `@universalasync.async_to_sync_wraps` (can be called from sync
@@ -723,7 +489,7 @@ Starts four external services required by integration tests:
 
 All services lease their own IP addresses from the host registry.
 
-### 8.4 Suite Config Lookup (`find_suite_config`)
+### 8.3 Suite Config Lookup (`find_suite_config`)
 
 **Signature:** `find_suite_config(path, config_filename) -> pathlib.Path`
 
@@ -731,14 +497,13 @@ Walks up the directory tree from `path` (relative to `TEST_DIR`) looking for a
 file named `config_filename`. Returns the first match. Raises `FileNotFoundError`
 if none is found up to the test root.
 
-### 8.5 Single-Test Creation Bridge (`get_testpy_test`)
+### 8.4 Single-Test Creation Bridge (`get_testpy_test`)
 
 **Signature:** `async get_testpy_test(path, options, mode) -> Test`
 
 Creates a single `Test` instance for a given file path:
 
-1. Finds the suite config: tries `suite.yaml` first, falls back to
-   `test_config.yaml`.
+1. Finds the suite config using `TEST_CONFIG_FILENAME` (`"test_config.yaml"`).
 2. Creates/retrieves the suite via `TestSuite.opt_create()`.
 3. If `options.exe_path` or `options.exe_url` is set, overrides `suite.scylla_exe`.
 4. Calls `suite.add_test(shortname, casename=None)`.
@@ -747,7 +512,9 @@ Creates a single `Test` instance for a given file path:
 This function is the primary bridge between the pytest fixture system and the
 suite framework.
 
-### 8.6 Terminal Color Palette (`palette`)
+Uses `TEST_CONFIG_FILENAME` directly (no `suite.yaml` fallback).
+
+### 8.5 Terminal Color Palette (`palette`)
 
 A namespace class (not instantiated) providing color formatters for terminal
 output. Each attribute is a `Callable[[Any], str]` that wraps its argument in
@@ -773,7 +540,7 @@ The formatters are created by `create_formatter(*decorators)`, a factory functio
 that returns either a colorizing function or a plain `str()` wrapper depending on
 whether stdout is a TTY.
 
-### 8.7 Log Reading (`read_log`)
+### 8.6 Log Reading (`read_log`)
 
 **Signature:** `read_log(log_filename: pathlib.Path) -> str`
 
@@ -781,15 +548,13 @@ Reads a log file and returns its contents. Returns descriptive placeholder strin
 if the file is not found (`"===Log {path} not found==="`), empty
 (`"===Empty log output==="`), or unreadable due to OS errors.
 
-### 8.8 Module Constants
+### 8.7 Module Constants
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `SUITE_CONFIG_FILENAME` | `"suite.yaml"` | Legacy config file name |
 | `TEST_CONFIG_FILENAME` | `"test_config.yaml"` | Current config file name |
 | `PYTEST_TESTS_LOGS_FOLDER` | `"pytest_tests_logs"` | Subdirectory for pytest log files |
 | `output_is_a_tty` | `sys.stdout.isatty()` | Cached TTY detection |
-| `toxiproxy_id_gen` | `0` | Global counter for toxiproxy instance IDs |
 
 ---
 
@@ -799,19 +564,12 @@ if the file is not found (`"===Log {path} not found==="`), empty
 
 The `test.py` script at the repository root is the CI entry point for running tests.
 
-**Discovery phase** (`find_tests`): scans `test/*/suite.yaml` (using the legacy
-config filename). For each found config and each requested mode, calls
-`TestSuite.opt_create()` and `suite.add_test_list()`.
+`test.py` is a thin wrapper around `run_pytest()`:
 
-**Execution phase** (`run_all_tests`): iterates `TestSuite.all_tests()`, creates
-async tasks via `test.suite.run(test, options)`, manages concurrency with
-`options.jobs`, and handles graceful shutdown on signals.
-
-**Result reporting**: iterates tests for:
-- Printing per-test summaries via `test.print_summary()`.
-- Generating consolidated JUnit XML via `suite.junit_tests()`.
-- Processing coverage data for suites where `need_coverage()` is true.
-- Listing tests (via `--list-tests` flag) in `mode type name` format.
+1. Parses arguments.
+2. Initializes suite globals and prepares the environment.
+3. Calls `run_pytest()` via `run_all_tests()`.
+4. Prints summary and handles coverage.
 
 ### 9.2 Pytest Plugin (`test/pylib/runner.py`)
 
@@ -845,21 +603,20 @@ infrastructure:
 
 | Directory | Key Integration |
 |-----------|-----------------|
-| `test/cqlpy/` | Uses `testpy_test.run_ctx()` to lease a Scylla cluster |
+| `test/cqlpy/` | Uses `testpy_test` for cluster access via `run_ctx()` |
 | `test/cluster/` | Uses `get_testpy_test()` to create a `ManagerClient` from the suite's cluster pool |
 | `test/cql/` | Uses `get_testpy_test()` to get `output_path` from the suite's log dir |
 | `test/alternator/` | Uses `add_host_option` |
 | `test/rest_api/` | Uses `add_host_option` and `add_cql_connection_options` |
 | `test/broadcast_tables/` | Uses `add_host_option` and `add_cql_connection_options` |
-| `test/scylla_gdb/` | Uses `testpy_test.run_ctx()` to get a running Scylla server |
+| `test/scylla_gdb/` | Uses `testpy_test` for cluster access via `run_ctx()` |
 
 ### 9.4 Artifact Lifecycle
 
 The `ArtifactRegistry` manages two levels of cleanup:
 
 - **Suite artifacts**: registered via `add_suite_artifact(suite, fn)`. Cleaned up
-  when all tests in a suite complete (called from `TestSuite.run()` when
-  `pending_test_count` reaches 0). Includes cluster `stop` and `uninstall`.
+  when all tests in a suite complete. Includes cluster `stop` and `uninstall`.
 - **Exit artifacts**: registered via `add_exit_artifact(suite, fn)`. Cleaned up
   at process exit. Includes third-party services (LDAP, MinIO, S3 mock, S3 proxy)
   and cluster `stop` as a safety net.
@@ -868,73 +625,50 @@ The `ArtifactRegistry` manages two levels of cleanup:
 
 ## 10. Data Flow Diagrams
 
-### 10.1 Test Discovery
+### 10.1 Test Discovery (Pytest Path)
 
 ```
 test_config.yaml
        |
-       | load_cfg()
+       | TestSuiteConfig.from_pytest_node()
        v
-   cfg dict
+   TestSuiteConfig (lightweight, collection-time only)
        |
-       | opt_create() reads cfg["type"]
-       | suite_type_to_class_name() maps to class
-       | import_module("test.pylib.suite") + getattr()
+       | is_test_disabled(build_mode, file_path)
+       | filter disabled tests during collection
        v
-   TestSuite subclass instance (cached in TestSuite.suites)
+   pytest_collect_file() multiplexes across (build_mode, run_id)
        |
-       | add_test_list()
-       |   build_test_list()      -- glob with self.pattern
-       |   sort (run_first first)
-       |   filter disabled_tests
-       |   filter skip_patterns
-       |   filter by options.name  (with :: case syntax)
-       |   for each surviving test x options.repeat:
-       |     add_test(shortname, casename)
        v
-   Test subclass instances (appended to suite.tests)
+   pytest_collection_modifyitems()
+       | suffix nodeid with .mode.run_id
+       | sort by suite order (run_first promoted)
+       v
+   collected items ready for execution
 ```
 
-### 10.2 Test Execution
+### 10.2 Test Execution (Pytest Path)
 
 ```
-suite.run(test, options)
+testpy_test fixture
        |
-       | test.started = True
-       | for i in 1..FLAKY_RETRIES:
-       |   if retry: test.reset(), is_flaky_failure = True
+       | get_testpy_test(path, options, mode)
        |   |
+       |   | find_suite_config(path, TEST_CONFIG_FILENAME)
+       |   | TestSuite.opt_create()  --> creates/caches TestSuite subclass
+       |   | suite.add_test()        --> creates Test instance
        |   v
-       |   test.run(options)              [abstract, varies by class]
-       |     |
-       |     | (PythonTest): run_ctx() -> lease cluster -> run_test()
-       |     | (TopologyTest): get_cluster_manager() -> manager.start() -> run_test()
-       |     | (ToolTest): _prepare_pytest_params() -> run_test()
-       |     | (RunTest): run_test(gentle_kill=True)
-       |     |
-       |     v
-       |   run_test(test, options, ...)
-       |     |
-       |     | open log file
-       |     | configure UBSAN/ASAN options
-       |     | setup cgroup for resource monitoring
-       |     | asyncio.create_subprocess_exec(path, *args, ...)
-       |     | wait_for(process.communicate(), timeout)
-       |     | check returncode against valid_exit_codes
-       |     | test.check_log(trim)
-       |     | write resource metrics
-       |     v
-       |   success / failure
+       | Test instance (with suite back-reference)
        |
-       | break if success or not flaky or cancelled
-       |
-       | finally:
-       |   pending_test_count -= 1
-       |   n_failed += int(test.failed)
-       |   if pending_test_count == 0:
-       |     artifacts.cleanup_after_suite()
        v
-   test (returned)
+   conftest fixtures use testpy_test.suite for:
+       | clusters pool, host registry, configuration
+       v
+   test function executes
+       |
+       v
+   pytest_sessionfinish
+       | TestSuite.artifacts.cleanup_before_exit()
 ```
 
 ### 10.3 Cluster Lifecycle (PythonTestSuite)
@@ -992,8 +726,6 @@ PythonTestSuite.__init__()
 | `Python` | `PythonTestSuite` | `"Python".title()` + `"TestSuite"` |
 | `Topology` | `TopologyTestSuite` | `"Topology".title()` + `"TestSuite"` |
 | `Approval` | `CQLApprovalTestSuite` | Special case: `"Approval"` -> `"CQLApproval"` + `"TestSuite"` |
-| `Run` | `RunTestSuite` | `"Run".title()` + `"TestSuite"` |
-| `Tool` | `ToolTestSuite` | `"Tool".title()` + `"TestSuite"` |
 
 ### 11.2 Active Configuration Files
 
