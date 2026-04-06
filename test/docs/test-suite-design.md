@@ -586,7 +586,8 @@ It walks up the directory tree to find the config file, similar to
 `find_suite_config()`.
 
 **Session setup**: calls `init_testsuite_globals()` and `prepare_environment()`
-during pytest session start (gated by `--test-py-init` flag).
+during pytest session start (gated by `TESTPY_PREPARED_ENVIRONMENT` env var
+to prevent double-initialization when test.py has already prepared the environment).
 
 > **Note:** `runner.py` is only loaded as a pytest plugin when
 > `TEST_RUNNER != "runpy"`.  In runpy mode (`test/cqlpy/run`,

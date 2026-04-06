@@ -70,8 +70,8 @@ These features work identically in bare pytest (with `runner.py` plugin):
 | `ThreadsCalculator` | test.py:77-119 | **Easy** | Move to a conftest fixture or wrapper script that computes `-n` from system resources |
 | `SCYLLA_CONF`/`SCYLLA_HOME` cleanup | test.py:895-898 | **Easy** | Add 4 lines to root `conftest.py` `pytest_configure` |
 | `--cpus` (taskset binding) | test.py:250-252,332-335,442-443 | **Easy** | Run `taskset -c <cpus> pytest ...` externally, or add a conftest hook |
-| `--test-py-init` guards | runner.py (4 hooks) | **Easy** | Remove the guards; `TESTPY_PREPARED_ENVIRONMENT` is sufficient to prevent double-init |
-| `testpy_test_fixture_scope` | runner.py + ~40 fixtures | **Easy** | Change condition from `--test-py-init` to `TEST_RUNNER`; keep function (runpy needs `"session"` scope) |
+| `--test-py-init` guards | runner.py (4 hooks) | **Easy** | ✅ Done (Phase 2) -- guards removed; `TESTPY_PREPARED_ENVIRONMENT` is sufficient |
+| `testpy_test_fixture_scope` | runner.py + ~40 fixtures | **Easy** | ✅ Done (Phase 2) -- condition changed from `--test-py-init` to `TEST_RUNNER`; function kept because runpy needs `"session"` scope |
 | Resource watcher | test.py:604 | **Medium** | Move to a session-scoped fixture or pytest plugin using a background thread |
 | Post-run JUnit XML summary | test.py:439-462 | **Easy** | Pytest's native summary is adequate; enhance with a plugin if needed |
 | `process_coverage()` | test.py:641-888 | **Hard** | Extract to standalone script; currently non-functional anyway |
@@ -94,17 +94,17 @@ os.environ.pop("SCYLLA_CONF", None)
 os.environ.pop("SCYLLA_HOME", None)
 ```
 
-**`--test-py-init` removal** -- Remove the `--test-py-init` option and all
-4 runner.py hook guards.  The `TESTPY_PREPARED_ENVIRONMENT` env var (set by
-test.py before invoking pytest) is the correct and sufficient mechanism to
-detect whether test.py already did setup.  ~20 lines of `if` removal.
+**`--test-py-init` removal** -- ✅ Done (Phase 2).  All 4 runner.py hooks are
+now unconditional.  The `TESTPY_PREPARED_ENVIRONMENT` env var (set by test.py
+before invoking pytest) is the correct and sufficient mechanism to detect
+whether test.py already did setup.
 
-**`testpy_test_fixture_scope` condition change** -- Change the function's
-condition from `--test-py-init` to `TEST_RUNNER`.  The function cannot be
-replaced with a literal `"module"` because run.py scripts
-(`SCYLLA_TEST_RUNNER=runpy`) need `"session"` scope (single Scylla instance),
-while test.py and bare pytest need `"module"` scope (one `Test` per module).
-No changes to conftest call sites are needed.
+**`testpy_test_fixture_scope` condition change** -- ✅ Done (Phase 2).  The
+function's condition was changed from `--test-py-init` to `TEST_RUNNER`.  It
+returns `"module"` for the pytest runner (both test.py and bare pytest) and
+`"session"` for run.py scripts.  The function was NOT replaced with a literal
+because runpy needs `"session"` scope (single Scylla instance) while pytest
+needs `"module"` scope (one `Test` instance per module).
 
 **`ThreadsCalculator`** -- 43 lines.  Options:
 - Move to a pytest plugin that sets `-n` based on system resources.
@@ -188,16 +188,11 @@ regardless of whether test.py exists.
 | `docs/dev/code-coverage.md` | 40-42 | `./test.py --coverage` | LOW -- documentation |
 | `test/rest_api/README.md` | 6 | `./test.py api/run` | LOW -- documentation |
 
-### `--test-py-init` Coupling Points
+### `--test-py-init` Coupling Points — ✅ ALL REMOVED (Phase 2)
 
-| File | Lines | Context |
-|------|-------|---------|
-| `test.py` | 398 | Passes `--test-py-init` to pytest |
-| `test/pylib/runner.py` | 82-87 | Option definition |
-| `test/pylib/runner.py` | 197 | Guards `pytest_sessionstart` init |
-| `test/pylib/runner.py` | 267 | Guards `pytest_sessionfinish` cleanup |
-| `test/pylib/runner.py` | 298 | Guards `pytest_configure` logging |
-| `test/pylib/runner.py` | 382 | Guards `pytest_runtest_makereport` log capture |
+All `--test-py-init` references have been removed.  The option no longer exists.
+`TESTPY_PREPARED_ENVIRONMENT` env var is the sole mechanism for detecting that
+test.py has already prepared the environment.
 
 ### Seastar References (separate project, non-blocking)
 
@@ -259,35 +254,55 @@ code with 19 lines of insertions.  246 framework unit tests pass.
   (deferred to Phase 3).
 - `pattern` abstract property — required by ABC contract (deferred to Phase 4).
 - `PythonTest.run_ctx()` — cluster lifecycle context manager, still called
-  by `test/cqlpy/conftest.py` and `test/scylla_gdb/conftest.py` under
-  `--test-py-init` (deferred to Phase 2).
+  by `test/cqlpy/conftest.py` and `test/scylla_gdb/conftest.py` (deferred to
+  later phases).
 - `_prepare_pytest_params()` on all test classes — still called by conftest
   fixtures.
 
-### Phase 2: Make Runner Self-Sufficient
+### Phase 2: Make Runner Self-Sufficient — ✅ COMPLETE
 
-These changes make `runner.py` work without `--test-py-init`:
+Phase 2 has been completed.  2 source files were modified, removing the
+`--test-py-init` option and making all runner.py hooks unconditional.
 
-1. **Change `testpy_test_fixture_scope` condition**: From checking
+**Key discovery: three execution modes.**  There are three ways tests run, not
+two.  Run.py scripts (`test/cqlpy/run`, `test/alternator/run`,
+`test/rest_api/run`) set `SCYLLA_TEST_RUNNER=runpy`, which causes
+`test/conftest.py` to skip loading runner.py as a plugin entirely.  This
+affects fixture scoping: runpy needs `"session"` scope (single externally-
+managed Scylla instance), while test.py and bare pytest need `"module"` scope
+(each module gets its own `Test` instance).
+
+**What was done:**
+
+1. ✅ **`testpy_test_fixture_scope` condition changed**: From checking
    `--test-py-init` to checking `TEST_RUNNER`.  Returns `"module"` for the
    pytest runner (both test.py and bare pytest), `"session"` for run.py
-   scripts.  The function is kept (not replaced with a literal) because the
-   dynamic scope serves a real purpose across three execution modes.
+   scripts.  The function was kept (not replaced with a literal) because the
+   dynamic scope serves a real purpose across execution modes.
 
-2. **Make `pytest_sessionstart` init unconditional**: Remove the
-   `--test-py-init` guard.  The `TESTPY_PREPARED_ENVIRONMENT` env var (set by
-   test.py on line 463) already prevents double-initialization.
+2. ✅ **`pytest_sessionstart` guard removed**: The `--test-py-init` guard was
+   redundant — `TESTPY_PREPARED_ENVIRONMENT` env var (set by test.py on line
+   463) already prevents double-initialization.
 
-3. **Make `pytest_sessionfinish` cleanup unconditional**: Same rationale --
+3. ✅ **`pytest_sessionfinish` guard removed**: Same rationale —
    `TESTPY_PREPARED_ENVIRONMENT` prevents double-cleanup.
 
-4. **Make `pytest_configure` logging unconditional**: Logging setup always
+4. ✅ **`pytest_configure` logging made unconditional**: Logging setup always
    runs.  When test.py calls pytest, both write to separate log files.
 
-5. **Make `pytest_runtest_makereport` unconditional**: Failure log capture
+5. ✅ **`pytest_runtest_makereport` made unconditional**: Failure log capture
    always runs (purely additive).
 
-6. **Remove `--test-py-init` option** from runner.py and test.py.
+6. ✅ **`--test-py-init` option removed** from runner.py and test.py.
+
+**What was intentionally kept (deferred):**
+
+- `scylla_gdb/conftest.py` crash — the `scylla_server` fixture has no `None`
+  guard (deferred to later phase).
+- `cluster/conftest.py` and `cql/conftest.py` `get_testpy_test()` calls —
+  these create full `TestSuite`+`Test` objects for path computation (deferred).
+- `testpy_test_fixture_scope` function itself — cannot be replaced with a
+  literal because runpy needs `"session"` and pytest needs `"module"`.
 
 ### Phase 3: Simplify test.py to Thin Wrapper
 
@@ -383,7 +398,7 @@ communication):
 |------|-----------|--------|------------|
 | Coverage processing breaks | None | None | It's already broken (empty `all_tests()`) |
 | scylla_gdb tests break | Medium | Low | These tests may already be broken in bare pytest; fix the `None` guard |
-| Fixture scope condition change causes unexpected issues | Low | Low | The condition changes from `--test-py-init` to `TEST_RUNNER`; returns correct scope for all three modes |
+| Fixture scope condition change causes unexpected issues | Low | Low | ✅ Done — condition changed from `--test-py-init` to `TEST_RUNNER`; returns correct scope for all three modes |
 | Developer workflows disrupted | Medium | Low | Provide clear migration documentation; test.py is preserved as a thin wrapper |
 | External tools/scripts reference `./test.py` | Low | Low | Grep the codebase; only configure.py and CMakeLists.txt are programmatic references |
 
@@ -394,7 +409,7 @@ communication):
 | Phase | Effort | Risk |
 |-------|--------|------|
 | Phase 1: Dead code removal | ✅ Done | Very low (no behavioral change) |
-| Phase 2: Runner self-sufficiency | 2-3 days | Low (remove guards, change scope condition) |
+| Phase 2: Runner self-sufficiency | ✅ Done | Low (removed guards, changed scope condition) |
 | Phase 3: Simplify test.py | 2-3 days | Medium (CI integration) |
 | Phase 4: Suite framework cleanup | 1-2 days | Low |
 | Phase 5: Documentation | 1 day | None |

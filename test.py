@@ -325,7 +325,6 @@ def run_pytest(options: argparse.Namespace) -> tuple[int, list[SimpleNamespace]]
             "--log-level=DEBUG",  # Capture logs
             f'--junit-xml={junit_output_file}',
             "-rf",
-            '--test-py-init',
             f'-n{options.jobs}',
             f'--tmpdir={temp_dir}',
             f'--maxfail={options.max_failures}',

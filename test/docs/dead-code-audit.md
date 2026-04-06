@@ -141,7 +141,7 @@ Each symbol was classified as:
 | `_prepare_pytest_params()` | LEGACY-ONLY | 🔄 REMAINING | Called only from `run_ctx()` which will be refactored to build args directly; planned for removal in Phase 4 |
 | `reset()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` chain |
 | `print_summary()` | LEGACY-ONLY | ✅ REMOVED | Only called from `test.py:548` |
-| `run_ctx()` | SHARED | 🔄 REMAINING | Called from `test/cqlpy/conftest.py:45` and `test/scylla_gdb/conftest.py:18`; manages cluster lifecycle (lease from pool, before_test/after_test, teardown) |
+| `run_ctx()` | SHARED | 🔄 REMAINING | Called from `test/cqlpy/conftest.py` and `test/scylla_gdb/conftest.py`; manages cluster lifecycle (lease from pool, before_test/after_test, teardown) |
 | `run()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` chain |
 
 ### Module-Level Functions
@@ -260,7 +260,7 @@ re-export was removed.
 
 | Code Block | Category | Status | Justification |
 |------------|----------|--------|---------------|
-| `--test-py-init` option | LEGACY-ONLY | 🔄 REMAINING | Still used; deferred to Phase 2 |
+| `--test-py-init` option | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 2; `TESTPY_PREPARED_ENVIRONMENT` is sufficient |
 | `--scylla-log-filename` option | LEGACY-ONLY | 🔄 REMAINING | Only meaningful under test.py; planned for removal in Phase 4 |
 | `print_scylla_log_filename` fixture | LEGACY-ONLY | 🔄 REMAINING | Depends on `--scylla-log-filename`; planned for removal in Phase 4 |
 | `testpy_test_fixture_scope()` | SHARED | 🔄 REMAINING | Condition changed in Phase 2 from `--test-py-init` to `TEST_RUNNER`; function kept because runpy needs `"session"` scope |
@@ -312,9 +312,11 @@ re-export was removed.
 | `scylla_server` fixture (entire body) | LEGACY-ONLY | 🔄 REMAINING |
 
 **This fixture has NO fallback**: it accesses `testpy_test.run_ctx()` without
-a `None` guard.  It is only invoked when `testpy_test is not None` (i.e.,
-under `--test-py-init`), so it does not affect bare pytest runs.  This needs
-to be addressed in Phase 2.
+a `None` guard.  In test.py mode, `testpy_test` returns a real `Test` instance
+(module-scoped), so the fixture works.  In bare pytest mode (after Phase 2),
+`testpy_test` also returns a real `Test` instance (module-scoped), so this
+fixture now works there too.  In runpy mode, runner.py is not loaded as a
+plugin, so this fixture is not registered.
 
 ### `test/alternator/conftest.py`, `test/rest_api/conftest.py`
 
@@ -349,7 +351,7 @@ Only import utility functions (`add_host_option`, `add_cql_connection_options`,
 
 | Category | Count | Notable Items |
 |----------|-------|---------------|
-| LEGACY-ONLY (remaining) | ~440 lines (test.py) + ~120 lines (runner.py) + ~80 lines (conftest files) | `process_coverage()`, `setup_signal_handlers()`, `--test-py-init` guards, conftest legacy branches |
+| LEGACY-ONLY (remaining) | ~440 lines (test.py) + ~80 lines (conftest files) | `process_coverage()`, `setup_signal_handlers()`, conftest legacy branches |
 | SHARED | ~32 (suite/) + ~260 lines (test.py) | `opt_create()`, `get_testpy_test()`, `prepare_environment()`, `add_test()` |
 
 ### Largest Remaining Dead Code Blocks
@@ -357,22 +359,22 @@ Only import utility functions (`add_host_option`, `add_cql_connection_options`,
 | Block | File | Size | Phase |
 |-------|------|------|-------|
 | `process_coverage()` | `test.py` | 248 lines | Phase 3 |
-| `--test-py-init` guarded code | `runner.py` | ~120 lines | Phase 2 |
+| `--test-py-init` guarded code | `runner.py` | ~120 lines | ✅ Removed in Phase 2 |
 | `run_all_tests()` async scaffolding (remaining) | `test.py` | ~14 lines | Phase 3 |
 | `manager_api_sock_path` else branch | `cluster/conftest.py` | ~25 lines | Phase 2 |
 
-### Fixture Scope: `testpy_test_fixture_scope` (Remaining — Phase 2)
+### Fixture Scope: `testpy_test_fixture_scope` — Condition Changed (Phase 2)
 
 ~40+ fixtures across 7 conftest files use `testpy_test_fixture_scope` as their
-scope parameter.  The function's condition needs to change from `--test-py-init`
-to `TEST_RUNNER`:
+scope parameter.  In Phase 2, the function's condition was changed from
+`--test-py-init` to `TEST_RUNNER`:
 
-- `TEST_RUNNER == "runpy"` -> `"session"` (run.py scripts: single Scylla instance)
-- `TEST_RUNNER == "pytest"` -> `"module"` (test.py and bare pytest: one Test per module)
+- `TEST_RUNNER == "runpy"` → `"session"` (run.py scripts: single Scylla instance)
+- `TEST_RUNNER == "pytest"` → `"module"` (test.py and bare pytest: one Test per module)
 
 The function cannot be replaced with a literal because both scopes are needed.
-No changes to conftest files are required -- only the function's internal
-condition changes while its call sites remain the same.
+No changes to conftest files were required — the function's internal behavior
+changed while its call sites remained the same.
 
 ### Dead Import: `SUITE_CONFIG_FILENAME` — ✅ FULLY REMOVED
 

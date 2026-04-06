@@ -233,7 +233,6 @@ In list-tests mode (`--list`): adds `--collect-only`, `--quiet`, `--no-header`.
 
 In execution mode: adds:
 - `--log-level=DEBUG`, `--junit-xml=<path>`, `-rf`
-- `--test-py-init` (triggers suite framework initialization in the pytest plugin)
 - `-n<jobs>` (xdist parallelism), `--tmpdir=<path>`, `--maxfail=<N>`
 - `--alluredir=<path>`, `--dist=worksteal`
 
@@ -419,7 +418,7 @@ parse_cmd_line()
       |
       v
 run_all_tests()
-      |--- run_pytest(options) ---------> pytest.main() with --test-py-init
+      |--- run_pytest(options) ---------> pytest.main()
       |                                      |
       |                                      v
       |                                   runner.py plugin

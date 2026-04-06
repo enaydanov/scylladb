@@ -39,7 +39,7 @@ that provides the following capabilities:
 - **Lifecycle management**: initializes suite globals and prepares the environment
   during session start, cleans up during session finish.
 
-The file is approximately 486 lines.
+The file is approximately 469 lines.
 
 ---
 
@@ -72,7 +72,7 @@ Four `pytest.StashKey` instances for storing per-node metadata:
 | `RUN_ID` | `int` | Repeat run ID assigned to this collector |
 | `PYTEST_LOG_FILE` | `str` | Path to the current worker/main process log file |
 
-A fifth StashKey, `TEST_SUITE`, is defined at module level (line 440) after the
+A fifth StashKey, `TEST_SUITE`, is defined at module level (line 423) after the
 `TestSuiteConfig` class:
 
 | Key | Type | Purpose |
@@ -110,7 +110,6 @@ Registers the following options:
 | `--byte-limit` | `int` | `randint(0,2000)` | Failure injection byte limit |
 | `--gather-metrics` | `BooleanOptionalAction` | `False` | Resource metrics |
 | `--random-seed` | `str` | `None` | Boost RNG seed |
-| `--test-py-init` | `bool` | `False` | Enable test.py-compatible initialization |
 | `--save-log-on-success` | `bool` | `False` | Keep success logs |
 | `--coverage` | `bool` | `False` | Coverage support |
 | `--coverage-mode` | `list[str]` | `None` | Per-mode coverage |
@@ -123,7 +122,7 @@ Registers the following options:
 | `--exe-url` | `str` | `False` | Executable download URL |
 
 These options mirror `test.py`'s options to maintain compatibility when test.py
-invokes pytest via `--test-py-init`.
+invokes pytest.
 
 ---
 
@@ -135,7 +134,7 @@ Called during pytest startup. Performs:
 
 1. **Store global config**: sets `_pytest_config = config`.
 
-2. **Logging setup** (only if `--test-py-init`):
+2. **Logging setup**:
    - Creates `pytest_log_dir = tmpdir / PYTEST_LOG_FOLDER`.
    - **xdist worker**: log file is `pytest_log/pytest_<worker_id>_<HOST_ID>.log`.
    - **Main process**: creates `pytest_log` directory, cleans old logs (unless
@@ -163,7 +162,6 @@ Called during pytest startup. Performs:
 
 Runs during session startup. Gates:
 - Skips if `TEST_RUNNER != "pytest"` or `--collect-only`.
-- Skips if `--test-py-init` is not set.
 
 **Global initialization** (xdist workers or if test.py hasn't prepared):
 - Calls `init_testsuite_globals()`.
@@ -177,7 +175,7 @@ The xdist detection uses `xdist.is_xdist_worker(request_or_session=session)`.
 
 ### 5.2 `pytest_sessionfinish(session: pytest.Session)`
 
-Runs during session teardown. Gates on `--test-py-init`.
+Runs during session teardown.
 
 1. **Log cleanup**: if not xdist-worker-in-test.py-mode, and all tests passed,
    and `--save-log-on-success` is false: deletes the pytest log file.
@@ -234,8 +232,8 @@ Post-collection hook that processes all collected items:
 
 Decorated with `@pytest.hookimpl(tryfirst=True, hookwrapper=True)`.
 
-When `--test-py-init` is active: captures test failure details and writes them
-to log files in the `PYTEST_TESTS_LOGS_FOLDER` directory.
+Captures test failure details and writes them to log files in the
+`PYTEST_TESTS_LOGS_FOLDER` directory.
 
 For each report (setup, call, teardown):
 - If the report indicates failure or `--save-log-on-success`:
@@ -321,9 +319,11 @@ Not a fixture itself, but a **scope function** used by multiple fixtures:
 def testpy_test_fixture_scope(fixture_name: str, config: pytest.Config) -> _ScopeName
 ```
 
-Returns `"module"` if `--test-py-init` is set (test.py runs tests file-by-file),
-`"session"` otherwise (bare pytest runs all tests in one session). This ensures
-consistent scoping behavior between both runners.
+Returns `"module"` when `TEST_RUNNER` is `"pytest"` (both test.py and bare
+pytest), where each module needs its own `Test` instance tied to its
+`test_config.yaml` and build mode.  Returns `"session"` when `TEST_RUNNER` is
+`"runpy"` (run.py scripts start a single Scylla instance for the entire test
+session, so fixtures like `host` and `cql` should be session-scoped).
 
 Has `__test__ = False` to prevent pytest from collecting it as a test.
 
@@ -336,8 +336,10 @@ The primary bridge fixture between pytest and the suite framework.
 async def testpy_test(request, build_mode) -> Test | None
 ```
 
-- If scope is `"module"`: calls `get_testpy_test(path=request.path, options=request.config.option, mode=build_mode)` and returns the created `Test` instance.
-- If scope is `"session"` (bare pytest): returns `None`.
+- If scope is `"module"` (test.py and bare pytest): calls `get_testpy_test(path=request.path, options=request.config.option, mode=build_mode)` and returns the created `Test` instance.
+- If scope is `"session"` (runpy): returns `None`.  In runpy mode, runner.py is
+  not loaded as a plugin; `test/conftest.py` provides its own session-scoped
+  `testpy_test` that also returns `None`.
 
 When it returns a `Test` instance, conftest files can access `testpy_test.suite`
 for cluster pool, host registry, and configuration.
@@ -445,9 +447,10 @@ collector to item.
    instances (with cluster pools, artifacts, etc.) are created lazily via
    `get_testpy_test()` in the `testpy_test` fixture, not during collection.
 
-3. **Dynamic fixture scoping**: `testpy_test_fixture_scope` ensures that when
-   test.py calls pytest (file-by-file), fixtures are module-scoped (one per file),
-   but when pytest runs standalone, they are session-scoped (one per session).
+3. **Dynamic fixture scoping**: `testpy_test_fixture_scope` returns `"module"`
+   for the pytest runner (both test.py and bare pytest), ensuring each module
+   gets its own `Test` instance.  It returns `"session"` for run.py scripts,
+   where a single Scylla instance is shared across the entire test session.
 
 4. **xdist awareness**: the plugin handles both xdist workers and the main
    process differently. Workers always initialize globals (separate processes).
