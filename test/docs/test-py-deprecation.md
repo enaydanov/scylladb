@@ -420,19 +420,32 @@ were cleaned up from runner.py.
   `test/scylla_gdb/conftest.py` updated.  `self.args.insert()` calls for
   `--host` and `--scylla-log-filename` removed from `run_ctx()` body.
 
-### Phase 5: Documentation and Cleanup
+### Phase 5: Documentation and Cleanup — ✅ COMPLETE
 
-1. **Update `docs/dev/testing.md`** -- Document bare pytest invocations
-   alongside `./test.py` examples.
+Phase 5 has been completed.  External-facing documentation was updated to
+reflect that test.py is a thin wrapper and bare pytest works directly.
 
-2. **Update `HACKING.md`** -- Same.
+**What was done:**
 
-3. **Update `.github/copilot-instructions.md`** -- Same.
+1. ✅ **Updated `docs/dev/testing.md`** -- Rewrote introduction to describe
+   test.py as a thin wrapper.  Added bare pytest usage section.  Fixed
+   "How it works" to reflect that runner.py handles discovery.  Updated stale
+   `test.py.log` references to `testlog/pytest_log/`.  Fixed stale
+   `suite.yaml` references to `test_config.yaml`.
 
-4. **Update `docs/dev/code-coverage.md`** -- Document new coverage approach.
+2. ✅ **Updated `HACKING.md`** -- Added bare pytest example to "Unit testing"
+   section.  Nuanced the coverage section to note that coverage post-processing
+   requires test.py.
 
-5. **Update `test/docs/test-py-design.md`** -- Keep in sync with current
-   test.py state.
+3. ✅ **Updated `.github/copilot-instructions.md`** -- Added note that bare
+   pytest works directly alongside test.py.
+
+4. ✅ **Updated `docs/dev/code-coverage.md`** -- Added note that coverage
+   post-processing is handled by test.py, and bare pytest requires manual
+   profile processing.
+
+5. ✅ **`test/docs/test-py-design.md`** -- Already accurate, no changes
+   needed.
 
 ---
 
@@ -456,7 +469,7 @@ were cleaned up from runner.py.
 | Phase 2: Runner self-sufficiency | ✅ Done | Low (removed guards, changed scope condition) |
 | Phase 3: Simplify test.py | ✅ Done | Low (thin wrapper preserved for CI) |
 | Phase 4: Suite framework cleanup | ✅ Done | Low (removed dead code from 6 source files) |
-| Phase 5: Documentation | 1 day | None |
+| Phase 5: Documentation | ✅ Done | None |
 | **Total** | **7-11 days** | |
 
 The phases can be executed incrementally.  Each phase produces a working state.

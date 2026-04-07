@@ -129,6 +129,13 @@ $ ./tools/toolchain/dbuild ninja {debug,release,dev}-build
 $ ./tools/toolchain/dbuild ./test.py --mode {debug,release,dev}
 ```
 
+You can also invoke `pytest` directly (the `runner.py` plugin is loaded
+automatically via `test/conftest.py`):
+
+```bash
+$ pytest test/ --mode=dev -n4
+```
+
 The `--name` argument can be specified to run a particular test.
 
 Alternatively, you can execute the test executable directly. For example,
@@ -391,9 +398,14 @@ Instruct `configure.py` to generate build files for `coverage` mode:
 
     $ ./configure.py --mode=coverage
 
-Build the tests you want to run, then run them via `test.py` (important!):
+Build the tests you want to run, then run them via `test.py` for automatic
+coverage processing:
 
     $ ./test.py --mode=coverage [...]
+
+Note: coverage post-processing (merging LLVM profiles into lcov traces) is
+handled by `test.py`.  You can also run tests with bare `pytest`, but you
+will need to process coverage profiles manually (see `docs/dev/code-coverage.md`).
 
 Alternatively, you can run individual tests via `./scripts/coverage.py --run`.
 

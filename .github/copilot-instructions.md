@@ -22,6 +22,11 @@ ninja build/<mode>/test/boost/<test_name>
 
 ## Running Tests
 
+**Note:** `test.py` is a thin CLI wrapper around `pytest`.  You can also
+invoke `pytest` directly (the `runner.py` plugin is loaded automatically):
+`pytest test/ --mode=dev -n4`.  The examples below use `test.py` for
+brevity.
+
 ### C++ Unit Tests
 ```bash
 # Run all tests in a file

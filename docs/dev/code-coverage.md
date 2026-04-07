@@ -36,6 +36,9 @@ how much.
 
 ## Running Unit Tests With Coverage Processing And Reporting
 In order to get an lcov trace files for unit test runs, simply add `--coverage` or `--coverage-mode` to the `test.py` command line.
+Note: coverage post-processing (merging LLVM profiles into lcov traces) is
+handled by `test.py`.  If you run tests with bare `pytest`, you will need
+to process coverage profiles manually using the tools described below.
 Examples:
 1. `./test.py --coverage` - will run all tests in all built modes and will produce a coverage lcov traces for all of them.
 2. `./test.py --coverage-mode dev` - will run all tests in all built modes and will produce a coverage lcov traces only for the dev mode runs.
