@@ -35,7 +35,7 @@ from test.pylib.util import LogPrefixAdapter, get_xdist_worker_id
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
-    from typing import Any, List, Optional, Union
+    from typing import Any, Union
 
 
 TEST_CONFIG_FILENAME = "test_config.yaml"
@@ -251,8 +251,6 @@ class Test:
         # Arguments which are required by a program regardless of additional test specific arguments
         self.core_args : List[str] = []
         self.valid_exit_codes = [0]
-        # Name with test suite name
-        self.name = os.path.join(suite.name, shortname.split('.')[0])
         # Name within the suite
         self.shortname = shortname
         self.mode = suite.mode
@@ -265,7 +263,6 @@ class Test:
         self.time_start: float = 0
         self.time_end: float = 0
         self.server_address: str | None = None
-        self.server_log_filename: Optional[pathlib.Path] = None
         self.is_before_test_ok = False
         self.is_after_test_ok = False
 
@@ -279,6 +276,8 @@ class Test:
         """
         loggerPrefix = self.mode + '/' + self.uname
         logger = LogPrefixAdapter(logging.getLogger(loggerPrefix), {'prefix': loggerPrefix})
+        name = os.path.join(self.suite.name, self.shortname.split('.')[0])
+        server_log_filename = None
         cluster = None
         try:
             cluster = await self.suite.clusters.get(logger)
@@ -293,7 +292,7 @@ class Test:
                 cluster.prepare_cql_executed = True
             logger.info("Leasing Scylla cluster %s for test %s", cluster, self.uname)
             self.server_address = cluster.endpoint()
-            self.server_log_filename = cluster.server_log_filename()
+            server_log_filename = cluster.server_log_filename()
             self.is_before_test_ok = True
             cluster.take_log_savepoint()
 
@@ -305,11 +304,11 @@ class Test:
             self.is_after_test_ok = True
         except Exception as e:
             if not self.is_before_test_ok:
-                print(f"Test {self.name} pre-check failed: {str(e)}\ncheck server logs: {self.server_log_filename}")
-                logger.info(f"Discarding cluster after failed start for test %s...", self.name)
+                print(f"Test {name} pre-check failed: {str(e)}\ncheck server logs: {server_log_filename}")
+                logger.info(f"Discarding cluster after failed start for test %s...", name)
             elif not self.is_after_test_ok:
-                print(f"Test {self.name} post-check failed: {str(e)}\ncheck server logs: {self.server_log_filename}")
-                logger.info(f"Discarding cluster after failed test %s...", self.name)
+                print(f"Test {name} post-check failed: {str(e)}\ncheck server logs: {server_log_filename}")
+                logger.info(f"Discarding cluster after failed test %s...", name)
             self.success = False
             if cluster is not None:
                 cluster.is_dirty = True
