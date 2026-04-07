@@ -27,7 +27,7 @@ import sys
 
 from scripts import coverage
 from test import ALL_MODES, HOST_ID, TOP_SRC_DIR, path_to, TEST_DIR
-from test.pylib.suite.base import palette
+from test.pylib.suite import palette
 from test.pylib.util import get_configured_modes
 
 PYTEST_RUNNER_DIRECTORIES = [

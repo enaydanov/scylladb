@@ -40,7 +40,7 @@ The file is 276 lines. Key responsibilities:
 
 From suite framework:
 - `testpy_test_fixture_scope` from `test.pylib.runner` -- dynamic fixture scoping
-- `PythonTest` from `test.pylib.suite.python` -- type annotation for `testpy_test`
+- `Test` from `test.pylib.suite` -- type annotation for `testpy_test`
 - `add_host_option`, `add_cql_connection_options`, `add_s3_options` from
   `test.pylib.runner` -- CLI option registration helpers
 
@@ -83,7 +83,7 @@ The core fixture that provides a Scylla server address:
 - **With testpy_test (test.py mode):** enters `testpy_test.run_ctx(options=testpy_test.suite.options)`, which leases a cluster from the pool, runs `before_test()`/`after_test()`, and yields the server address. The `async with` block keeps the cluster leased for the duration of the scope.
 - **Without testpy_test (bare pytest):** yields `request.config.getoption("--host")`, using the user-provided host address.
 
-Type annotation: `testpy_test: PythonTest | None`.
+Type annotation: `testpy_test: Test | None`.
 
 ### 4.2 `cql` (scope=dynamic)
 
@@ -232,7 +232,7 @@ Skips S3-related tests if `--no-minio` option is set.
 | Symbol | Source | Usage |
 |--------|--------|-------|
 | `testpy_test_fixture_scope` | `runner.py` | Dynamic scope for 10 fixtures |
-| `PythonTest` | `suite/python.py` | Type annotation in `host` fixture |
+| `Test` | `suite.py` | Type annotation in `host` fixture |
 | `add_host_option` | `runner.py` | `pytest_addoption` |
 | `add_cql_connection_options` | `runner.py` | `pytest_addoption` |
 | `add_s3_options` | `runner.py` | `pytest_addoption` |
@@ -246,7 +246,7 @@ host fixture
     |
     | testpy_test is not None?
     |   YES: async with testpy_test.run_ctx(options)
-    |          |-- lease cluster from PythonTestSuite.clusters pool
+    |          |-- lease cluster from TestSuite.clusters pool
     |          |-- cluster.before_test(uname)
     |          |-- execute prepare_cql (once per cluster)
     |          |-- yield server_address (cluster endpoint)

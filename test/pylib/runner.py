@@ -31,8 +31,9 @@ from _pytest.junitxml import xml_key
 from test import ALL_MODES, DEBUG_MODES, TEST_RUNNER, TOP_SRC_DIR, TESTPY_PREPARED_ENVIRONMENT, HOST_ID
 from test.pylib.scylla_cluster import merge_cmdline_options
 from test.pylib.skip_reason_plugin import skip_marker
-from test.pylib.suite.base import (
+from test.pylib.suite import (
     PYTEST_TESTS_LOGS_FOLDER,
+    TEST_CONFIG_FILENAME,
     TestSuite,
     get_testpy_test,
     prepare_environment,
@@ -55,10 +56,9 @@ if TYPE_CHECKING:
 
     from pytest import Parser
 
-    from test.pylib.suite.base import Test
+    from test.pylib.suite import Test
 
 
-TEST_CONFIG_FILENAME = "test_config.yaml"
 PYTEST_LOG_FOLDER = "pytest_log"
 
 REPEATING_FILES = pytest.StashKey[set[pathlib.Path]]()

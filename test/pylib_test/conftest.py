@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: LicenseRef-ScyllaDB-Source-Available-1.0
 #
 
-"""Shared fixtures for test/pylib/suite/ unit tests."""
+"""Shared fixtures for test/pylib/suite.py unit tests."""
 
 import argparse
 import pathlib
@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from test.pylib.suite.base import TestSuite
+from test.pylib.suite import TestSuite
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ def mock_options(tmp_path: pathlib.Path) -> argparse.Namespace:
         name=None,
         repeat=1,
         skip_patterns=None,
-        # PythonTestSuite needs these
+        # TestSuite needs these
         cluster_pool_size=None,
         extra_scylla_cmdline_options="",
     )
@@ -62,17 +62,14 @@ def mock_options(tmp_path: pathlib.Path) -> argparse.Namespace:
 
 @pytest.fixture
 def sample_cfg() -> dict:
-    """A minimal test_config.yaml dict (type=Python)."""
-    return {
-        "type": "Python",
-    }
+    """A minimal test_config.yaml dict."""
+    return {}
 
 
 @pytest.fixture
 def complex_cfg() -> dict:
     """A more realistic config with disabled/flaky/run_in settings."""
     return {
-        "type": "Python",
         "disable": ["broken_test"],
         "flaky": ["flaky_test"],
         "skip_in_debug": ["slow_test"],

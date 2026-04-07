@@ -24,7 +24,7 @@ migrated to `test_config.yaml`.  The legacy discovery function `find_tests()`
 
 **`test.py` is already just a wrapper around `run_pytest()` in practice.**
 
-> Note: `get_testpy_test()` in `base.py` now uses `TEST_CONFIG_FILENAME`
+> Note: `get_testpy_test()` in `suite.py` now uses `TEST_CONFIG_FILENAME`
 > directly (the `suite.yaml` fallback was removed in Phase 1).  This path is
 > used by conftest fixtures via the pytest runner, not by the legacy pipeline.
 
@@ -53,7 +53,7 @@ Each symbol was classified as:
 
 ---
 
-## 1. `test/pylib/suite/base.py`
+## 1. `test/pylib/suite.py` (formerly `suite/base.py`)
 
 ### Module-Level Symbols
 
@@ -120,14 +120,14 @@ Each symbol was classified as:
 
 ---
 
-## 2. `test/pylib/suite/python.py`
+## 2. `test/pylib/suite.py` (formerly `suite/python.py`)
 
 ### `PythonTestSuite` Class
 
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
 | `__init__()` | SHARED | 🔄 REMAINING | Called via `opt_create()` |
-| `get_cluster_factory()` | SHARED | 🔄 REMAINING | Called in `__init__()`; cluster pool used by conftest fixtures |
+| `get_cluster_factory()` | SHARED | 🔄 REMAINING | Called in `__init__()`; cluster pool used by conftest fixtures. Now in `suite.py` |
 | `pattern` (property) | SHARED | 🔄 REMAINING | Required abstract property |
 | `add_test()` | SHARED | 🔄 REMAINING | Called from `get_testpy_test()` |
 | `run()` | LEGACY-ONLY | ✅ REMOVED | Override of `TestSuite.run()`, only called from `test.py` |
@@ -153,7 +153,7 @@ Each symbol was classified as:
 
 ---
 
-## 3. `test/pylib/suite/cql_approval.py`
+## 3. `test/pylib/suite/cql_approval.py` — ✅ FILE DELETED (package flattened)
 
 ### `CQLApprovalTestSuite` Class
 
@@ -168,7 +168,7 @@ Each symbol was classified as:
 
 ---
 
-## 4. `test/pylib/suite/topology.py`
+## 4. `test/pylib/suite/topology.py` — ✅ FILE DELETED (package flattened)
 
 ### `TopologyTestSuite` Class
 
@@ -190,7 +190,7 @@ Phase 4.  `test/cluster/test_config.yaml` changed from `type: Topology` to
 
 ---
 
-## 5. `test/pylib/suite/tool.py` — ✅ FILE DELETED
+## 5. `test/pylib/suite/tool.py` — ✅ FILE DELETED (package flattened)
 
 `ToolTestSuite` and `ToolTest` had no consumers after all test directories
 migrated from `type: Tool` to `type: Python`.  The `nodetool` directory was
@@ -199,7 +199,7 @@ re-export was removed.
 
 ---
 
-## 6. `test/pylib/suite/run.py` — ✅ FILE DELETED
+## 6. `test/pylib/suite/run.py` — ✅ FILE DELETED (package flattened)
 
 `RunTestSuite` and `RunTest` had no consumers after all test directories
 migrated from `type: Run` to `type: Python`.  Multiple directories previously

@@ -4,10 +4,7 @@
 # SPDX-License-Identifier: LicenseRef-ScyllaDB-Source-Available-1.0
 #
 
-"""Unit tests for test/pylib/suite/python.py.
-
-Covers PythonTestSuite pool_size resolution.
-"""
+"""Unit tests for TestSuite pool_size resolution."""
 
 import argparse
 import os
@@ -15,7 +12,7 @@ import pathlib
 from unittest.mock import patch
 
 
-from test.pylib.suite.base import TestSuite
+from test.pylib.suite import TestSuite
 
 
 # ===================================================================
@@ -23,8 +20,8 @@ from test.pylib.suite.base import TestSuite
 # ===================================================================
 
 
-class TestPythonTestSuitePoolSize:
-    """Tests for the 4-tier pool_size priority in PythonTestSuite.__init__."""
+class TestPoolSize:
+    """Tests for the 4-tier pool_size priority in TestSuite.__init__."""
 
     def _make(
         self,
@@ -35,11 +32,11 @@ class TestPythonTestSuitePoolSize:
         opt_pool=None,
         mode="dev",
     ):
-        from test.pylib.suite.python import PythonTestSuite
+        from test.pylib.suite import TestSuite
 
         suite_dir = tmp_path / "pool_suite"
         suite_dir.mkdir(exist_ok=True)
-        cfg = {"type": "Python"}
+        cfg = {}
         if cfg_pool is not None:
             cfg["pool_size"] = cfg_pool
         mock_options.cluster_pool_size = opt_pool
@@ -47,11 +44,11 @@ class TestPythonTestSuitePoolSize:
         if env_pool is not None:
             env["CLUSTER_POOL_SIZE"] = str(env_pool)
         with (
-            patch("test.pylib.suite.python.path_to", return_value="/dummy/scylla"),
-            patch("test.pylib.suite.python.Pool") as MockPool,
+            patch("test.pylib.suite.path_to", return_value="/dummy/scylla"),
+            patch("test.pylib.suite.Pool") as MockPool,
             patch.dict(os.environ, env, clear=False),
         ):
-            suite = PythonTestSuite(str(suite_dir), cfg, mock_options, mode)
+            suite = TestSuite(str(suite_dir), cfg, mock_options, mode)
             # Extract pool_size passed to Pool constructor
             pool_size_arg = MockPool.call_args[0][0]
             return suite, pool_size_arg

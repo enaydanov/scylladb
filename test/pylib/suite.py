@@ -14,27 +14,28 @@ import pathlib
 import shutil
 import sys
 import time
-from abc import ABC, abstractmethod
-from importlib import import_module
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 import colorama
 import universalasync
 import yaml
 
-from test import TEST_DIR, TEST_RUNNER
+from test import TEST_DIR, TEST_RUNNER, path_to
 from test.pylib.artifact_registry import ArtifactRegistry
 from test.pylib.host_registry import HostRegistry
 from test.pylib.ldap_server import start_ldap
 from test.pylib.minio_server import MinioServer
+from test.pylib.pool import Pool
 from test.pylib.resource_gather import setup_cgroup
 from test.pylib.s3_proxy import S3ProxyServer
 from test.pylib.s3_server_mock import MockS3Server
+from test.pylib.scylla_cluster import ScyllaCluster, ScyllaServer, merge_cmdline_options, get_current_version_description, get_scylla_executable
 from test.pylib.util import LogPrefixAdapter, get_xdist_worker_id
-from test.pylib.scylla_cluster import get_scylla_executable
+
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from typing import Any, List
+    from collections.abc import AsyncGenerator, Awaitable, Callable
+    from typing import Any, List, Optional, Union
 
 
 TEST_CONFIG_FILENAME = "test_config.yaml"
@@ -62,7 +63,7 @@ class palette:
     diff_mark = create_formatter(colorama.Fore.MAGENTA)
 
 
-class TestSuite(ABC):
+class TestSuite:
     """A test suite is a folder with tests of the same type.
     E.g. it can be unit tests, boost tests, or CQL tests."""
 
@@ -94,6 +95,39 @@ class TestSuite(ABC):
             # ref: https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program
             self.base_env["LLVM_PROFILE_FILE"] = str(self.log_dir / "coverage" / self.name / "%m.profraw")
 
+        self.scylla_exe = path_to(self.mode, "scylla")
+
+        cluster_cfg = self.cfg.get("cluster", {"initial_size": 1})
+        cluster_size = cluster_cfg["initial_size"]
+        env_pool_size = os.getenv("CLUSTER_POOL_SIZE")
+        if options.cluster_pool_size is not None:
+            pool_size = options.cluster_pool_size
+        elif env_pool_size is not None:
+            pool_size = int(env_pool_size)
+        else:
+            pool_size = cfg.get("pool_size", 2)
+        self.dirties_cluster = set(cfg.get("dirties_cluster", []))
+
+        self.create_cluster = self.get_cluster_factory(cluster_size, options)
+        async def recycle_cluster(cluster: ScyllaCluster) -> None:
+            """When a dirty cluster is returned to the cluster pool,
+               stop it and release the used IPs. We don't necessarily uninstall() it yet,
+               which would delete the log file and directory - we might want to preserve
+               these if it came from a failed test.
+            """
+            for srv in cluster.servers.values():
+                if srv.log_file is not None:
+                    srv.log_file.close()
+                srv.maintenance_socket_dir.cleanup()
+            await cluster.stop()
+            # Close API client to release connector resources
+            if cluster.api is not None:
+                cluster.api.close()
+                cluster.api = None
+            await cluster.release_ips()
+
+        self.clusters = Pool(pool_size, self.create_cluster, recycle_cluster)
+
 
     # Generate a unique ID for `--repeat`ed tests
     # We want these tests to have different XML IDs so test result
@@ -122,40 +156,101 @@ class TestSuite(ABC):
 
     @staticmethod
     def opt_create(config: pathlib.Path, options: argparse.Namespace, mode: str) -> 'TestSuite':
-        """Return a subclass of TestSuite with name cfg["type"].title + TestSuite.
+        """Create a TestSuite for the given config file.
         Ensures there is only one suite instance per path."""
         path = str(config.parent)
         suite_key = os.path.join(path, mode)
         suite = TestSuite.suites.get(suite_key)
         if not suite:
             cfg = TestSuite.load_cfg(config)
-            kind = cfg.get("type")
-            if kind is None:
-                raise RuntimeError("Failed to load tests in {}: test_config.yaml has no suite type".format(path))
-
-            def suite_type_to_class_name(suite_type: str) -> str:
-                return suite_type.title() + "TestSuite"
-
-            SpecificTestSuite = getattr(import_module("test.pylib.suite"), suite_type_to_class_name(kind), None)
-            if not SpecificTestSuite:
-                raise RuntimeError("Failed to load tests in {}: suite type '{}' not found".format(path, kind))
-            suite = SpecificTestSuite(path, cfg, options, mode)
+            suite = TestSuite(path, cfg, options, mode)
             assert suite is not None
             TestSuite.suites[suite_key] = suite
         return suite
 
+    def get_cluster_factory(self, cluster_size: int, options: argparse.Namespace) -> Callable[..., Awaitable]:
+        def create_server(create_cfg: ScyllaCluster.CreateServerParams):
+            cmdline_options = self.cfg.get("extra_scylla_cmdline_options", [])
+            if type(cmdline_options) == str:
+                cmdline_options = [cmdline_options]
+            cmdline_options = merge_cmdline_options(cmdline_options, create_cfg.cmdline_from_test)
+            cmdline_options = merge_cmdline_options(cmdline_options, options.extra_scylla_cmdline_options.split())
+            # There are multiple sources of config options, with increasing priority
+            # (if two sources provide the same config option, the higher priority one wins):
+            # 1. the defaults
+            # 2. suite-specific config options (in "extra_scylla_config_options")
+            # 3. config options from tests (when servers are added during a test)
+            default_config_options = \
+                {"authenticator": "PasswordAuthenticator",
+                 "authorizer": "CassandraAuthorizer"}
+            default_config_options["tablets_initial_scale_factor"] = 4 if self.mode == "release" else 2
+            config_options = default_config_options | \
+                             self.cfg.get("extra_scylla_config_options", {}) | \
+                             create_cfg.config_from_test
 
-    @abstractmethod
-    async def add_test(self, shortname: str, casename: str | None) -> None:
-        pass
+            server = ScyllaServer(
+                mode=self.mode,
+                version=(create_cfg.version or get_current_version_description(self.scylla_exe)),
+                vardir=self.log_dir,
+                logger=create_cfg.logger,
+                cluster_name=create_cfg.cluster_name,
+                ip_addr=create_cfg.ip_addr,
+                seeds=create_cfg.seeds,
+                cmdline_options=cmdline_options,
+                config_options=config_options,
+                property_file=create_cfg.property_file,
+                append_env=self.base_env,
+                server_encryption=create_cfg.server_encryption)
+
+            return server
+
+        async def create_cluster(logger: Union[logging.Logger, logging.LoggerAdapter]) -> ScyllaCluster:
+            cluster = ScyllaCluster(logger, self.hosts, cluster_size, create_server)
+
+            async def stop() -> None:
+                await cluster.stop()
+
+            # Suite artifacts are removed when
+            # the entire suite ends successfully.
+            self.artifacts.add_suite_artifact(self, stop)
+            if not self.options.save_log_on_success:
+                # If a test fails, we might want to keep the data dirs.
+                async def uninstall() -> None:
+                    await cluster.uninstall()
+
+                self.artifacts.add_suite_artifact(self, uninstall)
+            self.artifacts.add_exit_artifact(self, stop)
+
+            await cluster.install_and_start()
+            # If cluster failed to start, raise the exception immediately
+            # so the pool doesn't return a broken cluster to tests
+            if cluster.start_exception is not None:
+                # Clean up the broken cluster before raising
+                try:
+                    await cluster.stop()
+                    if cluster.api is not None:
+                        await cluster.api.close()
+                        cluster.api = None
+                    await cluster.release_ips()
+                except:
+                    pass  # Ignore cleanup errors
+                raise cluster.start_exception
+            return cluster
+
+        return create_cluster
+
+
+    async def add_test(self, shortname, casename) -> None:
+        test = Test(self.next_id((shortname, self.suite_key)), shortname, casename, self)
+        self.tests.append(test)
 
     def need_coverage(self):
         return self.options.coverage and (self.mode in self.options.coverage_modes) and bool(self.cfg.get("coverage",True))
 
 
 class Test:
-    """Base class for CQL, Unit and Boost tests"""
-    def __init__(self, test_no: int, shortname: str, suite) -> None:
+    """Run a pytest collection of cases against a standalone Scylla"""
+    def __init__(self, test_no: int, shortname: str, casename: str, suite) -> None:
         self.id = test_no
         self.args: List[str] = []
         # Arguments which are required by a program regardless of additional test specific arguments
@@ -175,6 +270,61 @@ class Test:
         self.success = False
         self.time_start: float = 0
         self.time_end: float = 0
+        self.casename = casename
+        self.server_address: str | None = None
+        self.server_log_filename: Optional[pathlib.Path] = None
+        self.is_before_test_ok = False
+        self.is_after_test_ok = False
+
+    @asynccontextmanager
+    async def run_ctx(self) -> AsyncGenerator[None]:
+        """A test's setup/teardown context manager.
+
+        Leases a ScyllaDB cluster from the pool and sets server_address.
+        The cluster is returned to the pool after the test finishes.
+        If the test fails, the cluster is marked as dirty.
+        """
+        loggerPrefix = self.mode + '/' + self.uname
+        logger = LogPrefixAdapter(logging.getLogger(loggerPrefix), {'prefix': loggerPrefix})
+        cluster = None
+        try:
+            cluster = await self.suite.clusters.get(logger)
+            cluster.before_test(self.uname)
+            prepare_cql = self.suite.cfg.get("prepare_cql", None)
+            if prepare_cql and not hasattr(cluster, 'prepare_cql_executed'):
+                cc = next(iter(cluster.running.values())).control_connection
+                if not isinstance(prepare_cql, collections.abc.Iterable):
+                    prepare_cql = [prepare_cql]
+                for stmt in prepare_cql:
+                    cc.execute(stmt)
+                cluster.prepare_cql_executed = True
+            logger.info("Leasing Scylla cluster %s for test %s", cluster, self.uname)
+            self.server_address = cluster.endpoint()
+            self.server_log_filename = cluster.server_log_filename()
+            self.is_before_test_ok = True
+            cluster.take_log_savepoint()
+
+            yield cluster
+
+            if self.shortname in self.suite.dirties_cluster:
+                cluster.is_dirty = True
+            cluster.after_test(self.uname, self.success)
+            self.is_after_test_ok = True
+        except Exception as e:
+            if not self.is_before_test_ok:
+                print(f"Test {self.name} pre-check failed: {str(e)}\ncheck server logs: {self.server_log_filename}")
+                logger.info(f"Discarding cluster after failed start for test %s...", self.name)
+            elif not self.is_after_test_ok:
+                print(f"Test {self.name} post-check failed: {str(e)}\ncheck server logs: {self.server_log_filename}")
+                logger.info(f"Discarding cluster after failed test %s...", self.name)
+            self.success = False
+            if cluster is not None:
+                cluster.is_dirty = True
+            raise
+        finally:
+            if cluster is not None:
+                await self.suite.clusters.put(cluster, is_dirty=cluster.is_dirty)
+                logger.info("Test %s %s", self.uname, "succeeded" if self.success else "failed ")
 
 
 def init_testsuite_globals() -> None:

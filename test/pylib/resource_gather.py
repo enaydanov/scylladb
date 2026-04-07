@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from asyncio import Task, Event
     from typing import TextIO
 
-    from test.pylib.suite.base import Test as TestPyTest
+    from test.pylib.suite import Test as TestPyTest
 
 logger = logging.getLogger(__name__)
 

@@ -1,20 +1,18 @@
 # Test Suite Framework Design Document
 
-This document describes the test suite framework located in `test/pylib/suite/`.
+This document describes the test suite framework located in `test/pylib/suite.py`.
 
 ## Table of Contents
 
 1. [Introduction](#1-introduction)
 2. [Architecture Overview](#2-architecture-overview)
 3. [Configuration Schema](#3-configuration-schema-test_configyaml)
-4. [TestSuite Base Class Contract](#4-testsuite-base-class-contract)
-5. [Test Base Class Contract](#5-test-base-class-contract)
-6. [Concrete Suite Classes](#6-concrete-suite-classes)
-7. [Concrete Test Classes](#7-concrete-test-classes)
-8. [Module-Level Infrastructure](#8-module-level-infrastructure)
-9. [Integration Points](#9-integration-points)
-10. [Data Flow Diagrams](#10-data-flow-diagrams)
-11. [Appendix: Configuration Reference](#11-appendix-configuration-reference)
+4. [TestSuite Class Contract](#4-testsuite-class-contract)
+5. [Test Class Contract](#5-test-class-contract)
+6. [Module-Level Infrastructure](#6-module-level-infrastructure)
+7. [Integration Points](#7-integration-points)
+8. [Data Flow Diagrams](#8-data-flow-diagrams)
+9. [Appendix: Configuration Reference](#9-appendix-configuration-reference)
 
 ---
 
@@ -26,46 +24,35 @@ and executing ScyllaDB integration and functional tests across multiple build mo
 
 Key characteristics:
 
-- **YAML-driven**: each test directory declares its suite type and configuration in
+- **YAML-driven**: each test directory declares its configuration in
   a `test_config.yaml` file.
-- **Dynamic dispatch**: a factory method reads the YAML `type` field and instantiates
-  the correct `TestSuite` subclass at runtime via dynamic import.
+- **Single factory**: `TestSuite.opt_create()` loads the YAML config and
+  instantiates a `TestSuite` directly (one instance per path/mode).
 - **Three execution modes**: the `test.py` wrapper script, bare pytest with
   the `test/pylib/runner.py` plugin, and `run.py` scripts that start Scylla
   externally and invoke pytest with `SCYLLA_TEST_RUNNER=runpy`.
-- **Cluster pooling**: Python-based test suites maintain a pool of reusable
-  ScyllaDB cluster instances to amortize startup cost.
+- **Cluster pooling**: test suites maintain a pool of reusable ScyllaDB cluster
+  instances to amortize startup cost.
 
-The framework lives in 3 files under `test/pylib/suite/`:
+The framework lives in a single module:
 
 | File               | Contents                                                |
 |--------------------|---------------------------------------------------------|
-| `__init__.py`      | Re-exports `PythonTestSuite`                            |
-| `base.py`          | `TestSuite` (ABC), `Test`, module-level utilities       |
-| `python.py`        | `PythonTestSuite`, `PythonTest`                         |
+| `suite.py`         | `TestSuite`, `Test`, module-level utilities             |
 
 ---
 
 ## 2. Architecture Overview
 
-### 2.1 Class Hierarchy
+### 2.1 Class Structure
 
 ```
-TestSuite (ABC)                       base.py
-  |
-  +-- PythonTestSuite                 python.py
-
-
-Test                                  base.py
-  |
-  +-- PythonTest                      python.py
+TestSuite                             suite.py
+Test                                  suite.py
 ```
 
-`PythonTestSuite` and `PythonTest` are the only concrete classes.
-
-The `ToolTestSuite`/`ToolTest`, `RunTestSuite`/`RunTest`,
-`CQLApprovalTestSuite`, and `TopologyTestSuite`/`TopologyTest` classes have
-been deleted — all directories now use `type: Python`.
+`TestSuite` is the only suite class.  `Test` is the only test class.
+All test directories use `test_config.yaml` with no `type` field required.
 
 ### 2.2 Factory Pattern
 
@@ -73,19 +60,10 @@ Suite instantiation is never done directly by callers. Instead,
 `TestSuite.opt_create(config, options, mode)` acts as the single factory:
 
 1. Loads `test_config.yaml` via `load_cfg()`.
-2. Reads `cfg["type"]` (e.g. `"Python"`).
-3. Converts the type string to a class name via `suite_type_to_class_name()`:
-   `type.title() + "TestSuite"` (e.g. `"Python"` -> `"PythonTestSuite"`).
-4. Dynamically imports the class from the `test.pylib.suite` package
-   using `getattr(import_module("test.pylib.suite"), class_name)`.
-5. Instantiates it and caches it in `TestSuite.suites` (a class-level dict keyed
+2. Instantiates `TestSuite(path, cfg, options, mode)`.
+3. Caches the instance in `TestSuite.suites` (a class-level dict keyed
    by `path + "/" + mode`), ensuring exactly one suite instance per directory/mode
    combination.
-
-### 2.3 Package Initialization
-
-`test/pylib/suite/__init__.py` re-exports `PythonTestSuite` so the dynamic
-import in `opt_create()` can resolve it.
 
 ---
 
@@ -99,21 +77,20 @@ config.
 
 | Key | Type | Default | Consumed By | Description |
 |-----|------|---------|-------------|-------------|
-| `type` | `string` | (required) | `TestSuite.opt_create()` | Suite class selector. Currently only `Python` is used. |
-| `disable` | `list[string]` | `[]` | `TestSuite.__init__` | Test shortnames to unconditionally disable. |
-| `skip_in_<mode>` | `list[string]` | `[]` | `TestSuite.__init__` | Tests to skip in a specific build mode. `<mode>` is one of `debug`, `release`, `dev`, `sanitize`, `coverage`. |
-| `skip_in_debug_modes` | `list[string]` | `[]` | `TestSuite.__init__` | Tests to skip in all debug modes (as defined by the `DEBUG_MODES` constant). |
-| `run_in_<mode>` | `list[string]` | `[]` | `TestSuite.__init__` | Tests that should only run in a specific mode. A test listed in `run_in_X` but not in `run_in_<current_mode>` is disabled. |
-| `run_first` | `list[string]` | `[]` | `TestSuite.__init__` | Tests to prioritize (sorted to the front of the execution list). |
-| `no_parallel_cases` | `list[string]` | `[]` | `TestSuite.__init__` | Tests whose cases should not run in parallel. |
-| `flaky` | `list[string]` | `[]` | `TestSuite.__init__` | Tests that are known-flaky (retained in config for historical tracking). |
+| `disable` | `list[string]` | `[]` | `TestSuiteConfig` (runner.py) | Test shortnames to unconditionally disable. |
+| `skip_in_<mode>` | `list[string]` | `[]` | `TestSuiteConfig` (runner.py) | Tests to skip in a specific build mode. `<mode>` is one of `debug`, `release`, `dev`, `sanitize`, `coverage`. |
+| `skip_in_debug_modes` | `list[string]` | `[]` | `TestSuiteConfig` (runner.py) | Tests to skip in all debug modes (as defined by the `DEBUG_MODES` constant). |
+| `run_in_<mode>` | `list[string]` | `[]` | `TestSuiteConfig` (runner.py) | Tests that should only run in a specific mode. A test listed in `run_in_X` but not in `run_in_<current_mode>` is disabled. |
+| `run_first` | `list[string]` | `[]` | `TestSuiteConfig` (runner.py) | Tests to prioritize (sorted to the front of the execution list). |
+| `no_parallel_cases` | `list[string]` | `[]` | `TestSuiteConfig` (runner.py) | Tests whose cases should not run in parallel. |
+| `flaky` | `list[string]` | `[]` | `TestSuiteConfig` (runner.py) | Tests that are known-flaky (retained in config for historical tracking). |
 | `coverage` | `bool` | `true` | `TestSuite.need_coverage()` | Whether to enable code coverage for this suite. |
-| `cluster` | `mapping` | `{"initial_size": 1}` | `PythonTestSuite.__init__` | Cluster configuration. Sub-key `initial_size` controls the number of nodes. |
-| `pool_size` | `int` | `2` | `PythonTestSuite.__init__` | Number of clusters in the reuse pool. Overridden by CLI `--cluster-pool-size` or env `CLUSTER_POOL_SIZE`. |
-| `dirties_cluster` | `list[string]` | `[]` | `PythonTestSuite.__init__` | Tests that leave the cluster in a dirty state (requiring recycle). |
-| `extra_scylla_cmdline_options` | `list[string]` or `string` | `[]` | `PythonTestSuite.get_cluster_factory()` | Additional Scylla command-line flags. Merged with test-level and CLI-level options. |
-| `extra_scylla_config_options` | `mapping` | `{}` | `PythonTestSuite.get_cluster_factory()` | Additional Scylla config file options. Merged with defaults and test-level config. |
-| `prepare_cql` | `string` or `list[string]` | `null` | `PythonTest.run_ctx()` | CQL statements to execute once per cluster before tests run. |
+| `cluster` | `mapping` | `{"initial_size": 1}` | `TestSuite.__init__` | Cluster configuration. Sub-key `initial_size` controls the number of nodes. |
+| `pool_size` | `int` | `2` | `TestSuite.__init__` | Number of clusters in the reuse pool. Overridden by CLI `--cluster-pool-size` or env `CLUSTER_POOL_SIZE`. |
+| `dirties_cluster` | `list[string]` | `[]` | `TestSuite.__init__` | Tests that leave the cluster in a dirty state (requiring recycle). |
+| `extra_scylla_cmdline_options` | `list[string]` or `string` | `[]` | `TestSuite.get_cluster_factory()` | Additional Scylla command-line flags. Merged with test-level and CLI-level options. |
+| `extra_scylla_config_options` | `mapping` | `{}` | `TestSuite.get_cluster_factory()` | Additional Scylla config file options. Merged with defaults and test-level config. |
+| `prepare_cql` | `string` or `list[string]` | `null` | `Test.run_ctx()` | CQL statements to execute once per cluster before tests run. |
 | `custom_args` | `mapping[string, list[string]]` | `{}` | (Boost/unit suites, outside this framework) | Per-test custom arguments. Not consumed by the Python suite classes. |
 
 ### 3.2 Disabled-Test Resolution Algorithm
@@ -132,10 +109,9 @@ Tests not mentioned in any `run_in_*` directive run in all modes.
 
 ---
 
-## 4. TestSuite Base Class Contract
+## 4. TestSuite Class Contract
 
-**Location:** `base.py`
-**Inherits from:** `ABC`
+**Location:** `suite.py`
 
 ### 4.1 Class-Level State
 
@@ -144,7 +120,7 @@ Tests not mentioned in any `run_in_*` directive run in all modes.
 | `suites` | `dict[str, TestSuite]` | Global registry of all suite instances, keyed by `"path/mode"`. Serves as a singleton cache. |
 | `artifacts` | `ArtifactRegistry` | Global artifact/cleanup registry. Set once by `init_testsuite_globals()`. |
 | `hosts` | `HostRegistry` | Global host/IP registry for leasing network addresses. Set once by `init_testsuite_globals()`. |
-| `_next_id` | `defaultdict(int)` | Per-test-key monotonic counter for generating unique IDs. Keyed by tuples whose shape varies by suite type. |
+| `_next_id` | `defaultdict(int)` | Per-test-key monotonic counter for generating unique IDs. |
 
 ### 4.2 Constructor
 
@@ -163,13 +139,24 @@ Sets the following instance state:
 | `suite_key` | `os.path.join(path, mode)` |
 | `tests` | Empty list, populated later by `add_test()` |
 | `base_env` | Base environment dict. If coverage is needed, adds `LLVM_PROFILE_FILE`. |
+| `scylla_exe` | Path to the Scylla executable for the current mode, resolved via `path_to(mode, "scylla")`. |
+| `dirties_cluster` | Set of test shortnames from `cfg["dirties_cluster"]`. Tests in this set cause their cluster to be marked dirty after execution. |
+| `create_cluster` | An async factory function returned by `get_cluster_factory()`. |
+| `clusters` | A `Pool` instance parameterized with `pool_size`, the `create_cluster` factory, and a recycler function. |
 
-### 4.3 Abstract Interface
+The **cluster pool size** is resolved with the following priority:
+1. `options.cluster_pool_size` (CLI flag)
+2. `CLUSTER_POOL_SIZE` environment variable
+3. `cfg["pool_size"]`
+4. Default: `2`
 
-**`add_test(shortname: str, casename: str | None)`** (async): must create a `Test`
-subclass instance and append it to `self.tests`.
+The **recycler function** for dirty clusters:
+- Closes log files and cleans up maintenance socket directories for each server.
+- Stops the cluster.
+- Closes the API client and releases its connector resources.
+- Releases all leased IPs back to the host registry.
 
-### 4.4 Concrete Methods
+### 4.3 Concrete Methods
 
 **`next_id(test_key) -> int`**: generates a unique monotonic ID for each test key.
 If `options.run_id` is set (pytest mode), uses that fixed value. Otherwise
@@ -186,72 +173,10 @@ described in Section 2.2.
 the current mode is in the coverage modes, and the suite config does not set
 `coverage: false`.
 
----
+**`add_test(shortname, casename)`** (async): creates a `Test` instance with
+ID key `(shortname, self.suite_key)` and appends it to `self.tests`.
 
-## 5. Test Base Class Contract
-
-**Location:** `base.py`
-
-### 5.1 Constructor
-
-**Parameters:** `test_no: int`, `shortname: str`, `suite: TestSuite`
-
-Sets the following instance state:
-
-| Variable | Derivation |
-|----------|------------|
-| `id` | The `test_no` parameter |
-| `args` | Empty list (subclasses populate) |
-| `core_args` | Empty list (program-required args regardless of test) |
-| `valid_exit_codes` | `[0]` |
-| `name` | `suite.name + "/" + shortname` (with extension stripped at the dot) |
-| `shortname` | The `shortname` parameter |
-| `mode` | `suite.mode` |
-| `suite` | Back-reference to parent suite |
-| `allure_dir` | `suite.log_dir / "allure"` |
-| `uname` | Unique name: `"suite.shortname.id"` (with `/` replaced by `_`). If running under xdist, prefixed with the worker ID. |
-| `log_filename` | `suite.log_dir / "{uname}.log"` |
-| `success` | `False` |
-| `time_start` | `0` |
-| `time_end` | `0` |
-
----
-
-## 6. Concrete Suite Classes
-
-### 6.1 PythonTestSuite
-
-**Location:** `python.py`
-**Inherits from:** `TestSuite`
-**Role:** Intermediate base class for all suites that run Python pytest tests
-against a live Scylla cluster.
-
-#### Constructor Additions
-
-Beyond the base class, the constructor initializes:
-
-- **`scylla_exe`**: path to the Scylla executable for the current mode, resolved
-  via `path_to(mode, "scylla")`.
-- **`dirties_cluster`**: set of test shortnames from `cfg["dirties_cluster"]`.
-  Tests in this set cause their cluster to be marked dirty after execution.
-- **`create_cluster`**: an async factory function returned by `get_cluster_factory()`.
-- **`clusters`**: a `Pool` instance parameterized with `pool_size`, the
-  `create_cluster` factory, and a recycler function. The pool manages cluster
-  lifecycle.
-
-The **cluster pool size** is resolved with the following priority:
-1. `options.cluster_pool_size` (CLI flag)
-2. `CLUSTER_POOL_SIZE` environment variable
-3. `cfg["pool_size"]`
-4. Default: `2`
-
-The **recycler function** for dirty clusters:
-- Closes log files and cleans up maintenance socket directories for each server.
-- Stops the cluster.
-- Closes the API client and releases its connector resources.
-- Releases all leased IPs back to the host registry.
-
-#### Cluster Factory (`get_cluster_factory`)
+### 4.4 Cluster Factory (`get_cluster_factory`)
 
 Returns an async `create_cluster` function that:
 
@@ -271,42 +196,36 @@ Returns an async `create_cluster` function that:
    raises the start exception immediately, preventing the pool from returning a
    broken cluster.
 
-#### Overridden Methods
-
-- **`add_test(shortname, casename)`**: creates a `PythonTest` with ID key
-  `(shortname, self.suite_key)`.
-
-#### Class-Level Constants
-
-- **`test_file_ext`**: `".py"` -- used by `PythonTest` when constructing the test
-  file argument path.
-
 ---
 
----
+## 5. Test Class Contract
 
+**Location:** `suite.py`
 
-## 7. Concrete Test Classes
+### 5.1 Constructor
 
-### 7.1 PythonTest
+**Parameters:** `test_no: int`, `shortname: str`, `casename: str`, `suite: TestSuite`
 
-**Location:** `python.py`
-**Inherits from:** `Test`
-**Role:** Intermediate base class for tests that run via pytest against a
-Scylla cluster.
+Sets the following instance state:
 
-#### Constructor Additions
+| Variable | Derivation |
+|----------|------------|
+| `id` | The `test_no` parameter |
+| `name` | `suite.name + "/" + shortname` (with extension stripped at the dot) |
+| `shortname` | The `shortname` parameter |
+| `mode` | `suite.mode` |
+| `suite` | Back-reference to parent suite |
+| `uname` | Unique name: `"suite.shortname.id"` (with `/` replaced by `_`). If running under xdist, prefixed with the worker ID. |
+| `log_filename` | `suite.log_dir / "{uname}.log"` |
+| `success` | `False` |
+| `time_start` | `0` |
+| `time_end` | `0` |
+| `casename` | Optional case name within the test file |
+| `server_address` | `None` initially; set to the cluster endpoint before test execution |
+| `server_log_filename` | `None` initially; populated from the cluster during `run_ctx()` |
+| `is_before_test_ok` / `is_after_test_ok` | `False`; lifecycle flags to distinguish pre-test failures from test failures from post-test failures |
 
-- **`core_args`**: set to `["-m", "pytest"]` (invoke pytest as a module).
-- **`casename`**: optional case name within the test file (from `::` syntax).
-- **`server_address`**: `None` initially; set to the cluster endpoint before test
-  execution.
-- **`server_log_filename`**: `None` initially; populated from the cluster during
-  `run_ctx()`.
-- **`is_before_test_ok`** / **`is_after_test_ok`**: `False`; lifecycle flags to
-  distinguish pre-test failures from test failures from post-test failures.
-
-#### Key Methods
+### 5.2 Key Methods
 
 **`run_ctx()`** (async context manager): the setup/teardown lifecycle
 for a pool-based test:
@@ -316,8 +235,8 @@ for a pool-based test:
 3. If `prepare_cql` is configured and not yet executed for this cluster, runs
    the CQL statements via the first server's control connection. Marks
    `cluster.prepare_cql_executed` so they are not re-run.
-4. Sets `server_address` to `cluster.endpoint()` and `server_log_filename`
-   from the cluster.
+4. Sets `server_address` to `cluster.endpoint()` and `server_log_filename` to
+   `cluster.server_log_filename()`.
 5. Takes a log savepoint on the cluster.
 6. Yields to the test body.
 7. After the test: if the shortname is in `dirties_cluster`, marks the cluster
@@ -328,20 +247,18 @@ for a pool-based test:
 
 ---
 
----
+## 6. Module-Level Infrastructure
 
-## 8. Module-Level Infrastructure
+All module-level functions and utilities are in `suite.py`.
 
-All module-level functions and utilities are in `base.py` unless noted otherwise.
-
-### 8.1 Global Initialization (`init_testsuite_globals`)
+### 6.1 Global Initialization (`init_testsuite_globals`)
 
 Creates the global `ArtifactRegistry` and `HostRegistry` instances and assigns
 them to `TestSuite.artifacts` and `TestSuite.hosts` respectively. Must be called
 once before any suite is used. Called from both `test.py` and `runner.py` during
 session setup.
 
-### 8.2 Environment Preparation
+### 6.2 Environment Preparation
 
 **`prepare_environment(tempdir_base, modes, gather_metrics, save_log_on_success, toxiproxy_byte_limit)`**:
 Decorated with `@universalasync.async_to_sync_wraps` (can be called from sync
@@ -365,7 +282,7 @@ Starts four external services required by integration tests:
 
 All services lease their own IP addresses from the host registry.
 
-### 8.3 Suite Config Lookup (`find_suite_config`)
+### 6.3 Suite Config Lookup (`find_suite_config`)
 
 **Signature:** `find_suite_config(path, config_filename) -> pathlib.Path`
 
@@ -373,7 +290,7 @@ Walks up the directory tree from `path` (relative to `TEST_DIR`) looking for a
 file named `config_filename`. Returns the first match. Raises `FileNotFoundError`
 if none is found up to the test root.
 
-### 8.4 Single-Test Creation Bridge (`get_testpy_test`)
+### 6.4 Single-Test Creation Bridge (`get_testpy_test`)
 
 **Signature:** `async get_testpy_test(path, options, mode) -> Test`
 
@@ -390,7 +307,7 @@ suite framework.
 
 Uses `TEST_CONFIG_FILENAME` directly (no `suite.yaml` fallback).
 
-### 8.5 Terminal Color Palette (`palette`)
+### 6.5 Terminal Color Palette (`palette`)
 
 A namespace class (not instantiated) providing color formatters for terminal
 output. Each attribute is a `Callable[[Any], str]` that wraps its argument in
@@ -407,7 +324,7 @@ The formatters are created by `create_formatter(*decorators)`, a factory functio
 that returns either a colorizing function or a plain `str()` wrapper depending on
 whether stdout is a TTY.
 
-### 8.6 Module Constants
+### 6.6 Module Constants
 
 | Constant | Value | Description |
 |----------|-------|-------------|
@@ -417,9 +334,9 @@ whether stdout is a TTY.
 
 ---
 
-## 9. Integration Points
+## 7. Integration Points
 
-### 9.1 CI Entry Point (`test.py`)
+### 7.1 CI Entry Point (`test.py`)
 
 The `test.py` script at the repository root is the CI entry point for running tests.
 
@@ -429,7 +346,7 @@ The `test.py` script at the repository root is the CI entry point for running te
 2. Calls `run_pytest()` which invokes pytest with `runner.py` as its plugin.
 3. Returns the pytest exit code.
 
-### 9.2 Pytest Plugin (`test/pylib/runner.py`)
+### 7.2 Pytest Plugin (`test/pylib/runner.py`)
 
 The pytest-based runner integrates with the suite framework via:
 
@@ -455,7 +372,7 @@ to prevent double-initialization when test.py has already prepared the environme
 > `testpy_test_fixture_scope`) are still importable via regular Python imports
 > and are used by conftest files for fixture scoping.
 
-### 9.3 Conftest Files
+### 7.3 Conftest Files
 
 Each test directory has a `conftest.py` that bridges pytest fixtures to the suite
 infrastructure:
@@ -470,7 +387,7 @@ infrastructure:
 | `test/broadcast_tables/` | Uses `add_host_option` and `add_cql_connection_options` |
 | `test/scylla_gdb/` | Uses `testpy_test` for cluster access via `run_ctx()` |
 
-### 9.4 Artifact Lifecycle
+### 7.4 Artifact Lifecycle
 
 The `ArtifactRegistry` manages two levels of cleanup:
 
@@ -482,9 +399,9 @@ The `ArtifactRegistry` manages two levels of cleanup:
 
 ---
 
-## 10. Data Flow Diagrams
+## 8. Data Flow Diagrams
 
-### 10.1 Test Discovery (Pytest Path)
+### 8.1 Test Discovery (Pytest Path)
 
 ```
 test_config.yaml
@@ -506,7 +423,7 @@ test_config.yaml
    collected items ready for execution
 ```
 
-### 10.2 Test Execution (Pytest Path)
+### 8.2 Test Execution (Pytest Path)
 
 ```
 testpy_test fixture
@@ -514,7 +431,7 @@ testpy_test fixture
        | get_testpy_test(path, options, mode)
        |   |
        |   | find_suite_config(path, TEST_CONFIG_FILENAME)
-       |   | TestSuite.opt_create()  --> creates/caches TestSuite subclass
+       |   | TestSuite.opt_create()  --> creates/caches TestSuite
        |   | suite.add_test()        --> creates Test instance
        |   v
        | Test instance (with suite back-reference)
@@ -530,10 +447,10 @@ testpy_test fixture
        | TestSuite.artifacts.cleanup_before_exit()
 ```
 
-### 10.3 Cluster Lifecycle (PythonTestSuite)
+### 8.3 Cluster Lifecycle
 
 ```
-PythonTestSuite.__init__()
+TestSuite.__init__()
        |
        | Pool(pool_size, create_cluster, recycle_cluster)
        v
@@ -576,31 +493,22 @@ PythonTestSuite.__init__()
 
 ---
 
-## 11. Appendix: Configuration Reference
+## 9. Appendix: Configuration Reference
 
-### 11.1 Type-to-Class Mapping
+### 9.1 Active Configuration Files
 
-| YAML `type` | Class Name | Special Handling |
-|--------------|------------|------------------|
-| `Python` | `PythonTestSuite` | `"Python".title()` + `"TestSuite"` |
-| `Topology` | `TopologyTestSuite` | `"Topology".title()` + `"TestSuite"` |
-| `Approval` | `CQLApprovalTestSuite` | Special case: `"Approval"` -> `"CQLApproval"` + `"TestSuite"` |
+The following `test_config.yaml` files are processed by the suite framework:
 
-### 11.2 Active Configuration Files
-
-The following `test_config.yaml` files have a `type` field and are processed by
-the suite framework:
-
-| Path | Type | Notable Config |
-|------|------|----------------|
-| `test/cqlpy/test_config.yaml` | `Python` | `dirties_cluster: [test_native_transport]`, extra cmdline for tablets and UDF |
-| `test/rest_api/test_config.yaml` | `Python` | Extra cmdline for UDF and tablets |
-| `test/alternator/test_config.yaml` | `Python` | Extensive config options for Alternator (streams, TTL, authorization, ports) |
-| `test/broadcast_tables/test_config.yaml` | `Python` | Experimental broadcast-tables feature flag |
-| `test/nodetool/test_config.yaml` | `Python` | `coverage: false` |
-| `test/scylla_gdb/test_config.yaml` | `Python` | Minimal (type only) |
-| `test/cluster/test_config.yaml` | `Topology` | `pool_size: 4`, `cluster.initial_size: 0`, extensive `run_first`/`skip_in_*`/`run_in_*` lists |
-| `test/cql/test_config.yaml` | `Approval` | Extra cmdline for compact storage |
+| Path | Notable Config |
+|------|----------------|
+| `test/cqlpy/test_config.yaml` | `dirties_cluster: [test_native_transport]`, extra cmdline for tablets and UDF |
+| `test/rest_api/test_config.yaml` | Extra cmdline for UDF and tablets |
+| `test/alternator/test_config.yaml` | Extensive config options for Alternator (streams, TTL, authorization, ports) |
+| `test/broadcast_tables/test_config.yaml` | Experimental broadcast-tables feature flag |
+| `test/nodetool/test_config.yaml` | `coverage: false` |
+| `test/scylla_gdb/test_config.yaml` | Minimal (empty dict) |
+| `test/cluster/test_config.yaml` | `pool_size: 4`, `cluster.initial_size: 0`, extensive `run_first`/`skip_in_*`/`run_in_*` lists |
+| `test/cql/test_config.yaml` | Extra cmdline for compact storage |
 
 The following `test_config.yaml` files have **no `type` field** and are used by
 other parts of the test infrastructure (e.g. Boost/unit test runner):
@@ -614,12 +522,8 @@ other parts of the test infrastructure (e.g. Boost/unit test runner):
 No `suite.yaml` files currently exist in the project -- the migration to
 `test_config.yaml` is complete.
 
-### 11.3 Summary of Suite Characteristics
+### 9.2 Summary of Suite Characteristics
 
-| Suite Class | Test Class | Has Scylla Exe | Has Cluster Pool | Gentle Kill |
-|-------------|------------|----------------|------------------|-------------|
-| `PythonTestSuite` | `PythonTest` | Yes | Yes | No |
-| `CQLApprovalTestSuite` | `PythonTest` | Yes (inherited) | Yes (inherited) | No |
-| `TopologyTestSuite` | `TopologyTest` | Yes (inherited) | Yes (inherited, used by manager) | No |
-| `ToolTestSuite` | `ToolTest` | No | No | No |
-| `RunTestSuite` | `RunTest` | Yes | No | Yes |
+| Suite Class | Test Class | Has Scylla Exe | Has Cluster Pool |
+|-------------|------------|----------------|------------------|
+| `TestSuite` | `Test` | Yes | Yes |

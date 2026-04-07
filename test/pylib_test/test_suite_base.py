@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: LicenseRef-ScyllaDB-Source-Available-1.0
 #
 
-"""Unit tests for test/pylib/suite/base.py — shared code paths.
+"""Unit tests for test/pylib/suite.py — shared code paths.
 
 These tests cover the pure-logic portions of the suite framework that
 are exercised by both the legacy test.py pipeline and the pytest runner,
@@ -20,7 +20,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from test.pylib.suite.base import (
+from test.pylib.suite import (
     TEST_CONFIG_FILENAME,
     TestSuite,
     Test,
@@ -41,13 +41,13 @@ class TestCreateFormatter:
 
     def test_nocolor_when_not_tty(self):
         """When output_is_a_tty is False, formatter returns plain str."""
-        with patch("test.pylib.suite.base.output_is_a_tty", False):
+        with patch("test.pylib.suite.output_is_a_tty", False):
             fmt = create_formatter("\033[32m")
             assert fmt("hello") == "hello"
 
     def test_color_when_tty(self):
         """When output_is_a_tty is True, formatter wraps with ANSI codes."""
-        with patch("test.pylib.suite.base.output_is_a_tty", True):
+        with patch("test.pylib.suite.output_is_a_tty", True):
             fmt = create_formatter("\033[32m")
             result = fmt("hello")
             assert "hello" in result
@@ -65,7 +65,7 @@ class TestNextId:
 
     def _make_suite(self, mock_options, tmp_path, mode="dev"):
         """Helper: create a concrete TestSuite subclass instance."""
-        cfg = {"type": "Python"}
+        cfg = {}
         suite_dir = tmp_path / "s"
         suite_dir.mkdir(exist_ok=True)
         return _make_python_suite(str(suite_dir), cfg, mock_options, mode)
@@ -119,7 +119,7 @@ class TestNeedCoverage:
         opt_modes=None,
         mode="debug",
     ):
-        cfg = {"type": "Python", "coverage": cfg_coverage}
+        cfg = {"coverage": cfg_coverage}
         suite_dir = tmp_path / "cov_suite"
         suite_dir.mkdir(exist_ok=True)
         mock_options.coverage = opt_coverage
@@ -144,7 +144,7 @@ class TestNeedCoverage:
 
     def test_cfg_coverage_absent_defaults_true(self, mock_options, tmp_path):
         """When 'coverage' key is missing from YAML, defaults to True."""
-        cfg = {"type": "Python"}  # no 'coverage' key
+        cfg = {}  # no 'coverage' key
         suite_dir = tmp_path / "cov2"
         suite_dir.mkdir(exist_ok=True)
         mock_options.coverage = True
@@ -240,38 +240,36 @@ class TestOptCreate:
         config_path.write_text(yaml.dump(cfg))
         return config_path
 
-    @patch("test.pylib.suite.python.path_to", return_value="/dummy/scylla")
-    @patch("test.pylib.suite.python.Pool")
-    def test_python_type(self, _pool, _path_to, mock_options, tmp_path):
-        from test.pylib.suite.python import PythonTestSuite
-
+    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
+    @patch("test.pylib.suite.Pool")
+    def test_creates_suite(self, _pool, _path_to, mock_options, tmp_path):
+        """opt_create returns a TestSuite instance for a valid config."""
         suite_dir = tmp_path / "suite_py"
         suite_dir.mkdir()
-        config = self._write_cfg(suite_dir, {"type": "Python"})
+        config = self._write_cfg(suite_dir, {})
         suite = TestSuite.opt_create(config, mock_options, "dev")
-        assert isinstance(suite, PythonTestSuite)
+        assert isinstance(suite, TestSuite)
 
-    def test_caching(self, mock_options, tmp_path):
+    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
+    @patch("test.pylib.suite.Pool")
+    def test_caching(self, _pool, _path_to, mock_options, tmp_path):
         """Second call with same path+mode returns cached instance."""
         suite_dir = tmp_path / "suite_cache"
         suite_dir.mkdir()
-        config = self._write_cfg(suite_dir, {"type": "Python"})
+        config = self._write_cfg(suite_dir, {})
         s1 = TestSuite.opt_create(config, mock_options, "dev")
         s2 = TestSuite.opt_create(config, mock_options, "dev")
         assert s1 is s2
 
-    def test_missing_type_raises(self, mock_options, tmp_path):
-        suite_dir = tmp_path / "suite_notype"
+    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
+    @patch("test.pylib.suite.Pool")
+    def test_non_dict_config_raises(self, _pool, _path_to, mock_options, tmp_path):
+        """opt_create raises RuntimeError when YAML doesn't parse to a dict."""
+        suite_dir = tmp_path / "suite_bad_yaml"
         suite_dir.mkdir()
-        config = self._write_cfg(suite_dir, {"pool_size": 2})  # no 'type'
-        with pytest.raises(RuntimeError, match="no suite type"):
-            TestSuite.opt_create(config, mock_options, "dev")
-
-    def test_unknown_type_raises(self, mock_options, tmp_path):
-        suite_dir = tmp_path / "suite_bad"
-        suite_dir.mkdir()
-        config = self._write_cfg(suite_dir, {"type": "Nonexistent"})
-        with pytest.raises(RuntimeError, match="not found"):
+        config = suite_dir / "test_config.yaml"
+        config.write_text("- just\n- a\n- list\n")
+        with pytest.raises(RuntimeError, match="Failed to load"):
             TestSuite.opt_create(config, mock_options, "dev")
 
 
@@ -285,31 +283,31 @@ class TestFindSuiteConfig:
 
     def test_config_in_same_dir(self, tmp_path):
         """Config file in the same directory as the test path."""
-        with patch("test.pylib.suite.base.TEST_DIR", tmp_path):
+        with patch("test.pylib.suite.TEST_DIR", tmp_path):
             suite_dir = tmp_path / "my_suite"
             suite_dir.mkdir()
             config = suite_dir / TEST_CONFIG_FILENAME
-            config.write_text(yaml.dump({"type": "Python"}))
+            config.write_text(yaml.dump({}))
 
             result = find_suite_config(suite_dir, TEST_CONFIG_FILENAME)
             assert result == config
 
     def test_config_in_parent_dir(self, tmp_path):
         """Config file in a parent directory."""
-        with patch("test.pylib.suite.base.TEST_DIR", tmp_path):
+        with patch("test.pylib.suite.TEST_DIR", tmp_path):
             suite_dir = tmp_path / "parent"
             suite_dir.mkdir()
             child = suite_dir / "child"
             child.mkdir()
             config = suite_dir / TEST_CONFIG_FILENAME
-            config.write_text(yaml.dump({"type": "Python"}))
+            config.write_text(yaml.dump({}))
 
             result = find_suite_config(child, TEST_CONFIG_FILENAME)
             assert result == config
 
     def test_config_not_found_raises(self, tmp_path):
         """Raises FileNotFoundError when no config is found."""
-        with patch("test.pylib.suite.base.TEST_DIR", tmp_path):
+        with patch("test.pylib.suite.TEST_DIR", tmp_path):
             suite_dir = tmp_path / "empty"
             suite_dir.mkdir()
             with pytest.raises(FileNotFoundError, match="Unable to find"):
@@ -317,11 +315,11 @@ class TestFindSuiteConfig:
 
     def test_walks_for_file_path(self, tmp_path):
         """When path is a file (not a directory), still walks parents."""
-        with patch("test.pylib.suite.base.TEST_DIR", tmp_path):
+        with patch("test.pylib.suite.TEST_DIR", tmp_path):
             suite_dir = tmp_path / "suite_f"
             suite_dir.mkdir()
             config = suite_dir / TEST_CONFIG_FILENAME
-            config.write_text(yaml.dump({"type": "Python"}))
+            config.write_text(yaml.dump({}))
             test_file = suite_dir / "test_foo.py"
             test_file.write_text("# test")
 
@@ -338,7 +336,7 @@ class TestTestInit:
     """Tests for Test.__init__() — uname construction and xdist prefix."""
 
     def test_uname_basic(self, mock_options, tmp_path):
-        suite = _make_python_suite(str(tmp_path), {"type": "Python"}, mock_options, "dev")
+        suite = _make_python_suite(str(tmp_path), {}, mock_options, "dev")
         test_no = suite.next_id(("mytest", suite.suite_key))
         test = _make_python_test(test_no, "mytest", suite)
         # uname = suite_name.shortname.id
@@ -346,7 +344,7 @@ class TestTestInit:
         assert test.uname == expected
 
     def test_uname_slash_replaced(self, mock_options, tmp_path):
-        suite = _make_python_suite(str(tmp_path), {"type": "Python"}, mock_options, "dev")
+        suite = _make_python_suite(str(tmp_path), {}, mock_options, "dev")
         test_no = suite.next_id(("sub/test", suite.suite_key))
         test = _make_python_test(test_no, "sub/test", suite)
         assert "/" not in test.uname
@@ -356,7 +354,7 @@ class TestTestInit:
         """When PYTEST_XDIST_WORKER is set, uname gets a prefix."""
         with patch.dict(os.environ, {"PYTEST_XDIST_WORKER": "gw3"}):
             suite = _make_python_suite(
-                str(tmp_path), {"type": "Python"}, mock_options, "dev"
+                str(tmp_path), {}, mock_options, "dev"
             )
             test_no = suite.next_id(("xt", suite.suite_key))
             test = _make_python_test(test_no, "xt", suite)
@@ -368,7 +366,7 @@ class TestTestInit:
         env.pop("PYTEST_XDIST_WORKER", None)
         with patch.dict(os.environ, env, clear=True):
             suite = _make_python_suite(
-                str(tmp_path), {"type": "Python"}, mock_options, "dev"
+                str(tmp_path), {}, mock_options, "dev"
             )
             test_no = suite.next_id(("nt", suite.suite_key))
             test = _make_python_test(test_no, "nt", suite)
@@ -445,21 +443,19 @@ class TestPrepareDir:
 # ===================================================================
 
 
-def _make_python_suite(path: str, cfg: dict, options: argparse.Namespace, mode: str):
-    """Create a PythonTestSuite without triggering heavy imports."""
-    from test.pylib.suite.python import PythonTestSuite
-
-    _patch = patch
+def _make_python_suite(path: str, cfg: dict, options, mode: str):
+    """Create a TestSuite without triggering heavy imports."""
+    from unittest.mock import patch as _patch
+    
     pathlib.Path(path).mkdir(parents=True, exist_ok=True)
     with (
-        _patch("test.pylib.suite.python.path_to", return_value="/dummy/scylla"),
-        _patch("test.pylib.suite.python.Pool"),
+        _patch("test.pylib.suite.path_to", return_value="/dummy/scylla"),
+        _patch("test.pylib.suite.Pool"),
     ):
-        return PythonTestSuite(path, cfg, options, mode)
+        return TestSuite(path, cfg, options, mode)
 
 
 def _make_python_test(test_no: int, shortname: str, suite):
-    """Create a PythonTest instance."""
-    from test.pylib.suite.python import PythonTest
+    """Create a Test instance."""
+    return Test(test_no, shortname, None, suite)
 
-    return PythonTest(test_no, shortname, None, suite)

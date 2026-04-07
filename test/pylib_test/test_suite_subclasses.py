@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: LicenseRef-ScyllaDB-Source-Available-1.0
 #
 
-"""Unit tests for PythonTest.run_ctx() cluster lifecycle management."""
+"""Unit tests for Test.run_ctx() cluster lifecycle management."""
 
 import argparse
 import os
@@ -22,28 +22,28 @@ from test.pylib.suite.base import TestSuite
 # ===================================================================
 
 
-class TestPythonTestRunCtx:
-    """Tests for PythonTest.run_ctx() cluster lifecycle management."""
+class TestRunCtx:
+    """Tests for Test.run_ctx() cluster lifecycle management."""
 
     def _make_suite(self, tmp_path, mock_options, cfg=None, mode="dev"):
-        from test.pylib.suite.python import PythonTestSuite
+        from test.pylib.suite import TestSuite
 
-        suite_dir = tmp_path / "python_suite"
+        suite_dir = tmp_path / "suite"
         suite_dir.mkdir(exist_ok=True)
         if cfg is None:
-            cfg = {"type": "Python"}
+            cfg = {}
         with (
-            patch("test.pylib.suite.python.path_to", return_value="/dummy/scylla"),
-            patch("test.pylib.suite.python.Pool"),
+            patch("test.pylib.suite.path_to", return_value="/dummy/scylla"),
+            patch("test.pylib.suite.Pool"),
         ):
-            return PythonTestSuite(str(suite_dir), cfg, mock_options, mode)
+            return TestSuite(str(suite_dir), cfg, mock_options, mode)
 
     def _make_test(self, tmp_path, mock_options, cfg=None, shortname="test_foo", mode="dev"):
-        from test.pylib.suite.python import PythonTest
+        from test.pylib.suite import Test
 
         suite = self._make_suite(tmp_path, mock_options, cfg, mode)
         test_no = suite.next_id((shortname, suite.suite_key))
-        return PythonTest(test_no, shortname, None, suite)
+        return Test(test_no, shortname, None, suite)
 
     def _mock_cluster(self):
         """Create a mock cluster with the interface run_ctx() expects.
@@ -148,7 +148,7 @@ class TestPythonTestRunCtx:
     @pytest.mark.asyncio
     async def test_run_ctx_prepare_cql_executes_statements(self, tmp_path, mock_options):
         """When suite cfg has prepare_cql, statements are executed on control_connection."""
-        cfg = {"type": "Python", "prepare_cql": ["CREATE KEYSPACE ks", "USE ks"]}
+        cfg = {"prepare_cql": ["CREATE KEYSPACE ks", "USE ks"]}
         test = self._make_test(tmp_path, mock_options, cfg=cfg)
         cluster = self._mock_cluster()
         pool = self._mock_pool(cluster)
@@ -166,7 +166,7 @@ class TestPythonTestRunCtx:
     @pytest.mark.asyncio
     async def test_run_ctx_prepare_cql_runs_once(self, tmp_path, mock_options):
         """Second call to run_ctx skips prepare_cql if already executed."""
-        cfg = {"type": "Python", "prepare_cql": ["CREATE KEYSPACE ks"]}
+        cfg = {"prepare_cql": ["CREATE KEYSPACE ks"]}
         test = self._make_test(tmp_path, mock_options, cfg=cfg)
         cluster = self._mock_cluster()
         cluster.prepare_cql_executed = True  # simulate prior execution

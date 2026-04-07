@@ -23,7 +23,7 @@ their interactions with the suite framework.
 ## 1. Overview
 
 `test/cql/conftest.py` provides fixtures for the CQL approval test suite
-(suite type: `Approval`). Tests in this directory are `.cql` files that contain
+. Tests in this directory are `.cql` files that contain
 CQL statements and expected output. The test runner executes the CQL statements
 and compares actual output against expected results.
 
@@ -53,7 +53,7 @@ respectively.
 | `CQL_TEST_SUFFIX` | `test.pylib.cql_repl` | File suffix for CQL test files |
 | `CqlFile` | `test.pylib.cql_repl` | Custom pytest collector for `.cql` files |
 | `testpy_test_fixture_scope` | `test.pylib.runner` | Dynamic fixture scoping |
-| `get_testpy_test` | `test.pylib.suite.base` | Creates Test instances |
+| `get_testpy_test` | `test.pylib.suite` | Creates Test instances |
 | `add_host_option` | `test.pylib.runner` | CLI option helper |
 | `add_cql_connection_options` | `test.pylib.runner` | CLI option helper |
 
@@ -143,19 +143,16 @@ the expected `.result` file, enabling diff-based debugging.
 | `cql` (fixture) | `cqlpy/conftest.py` | Re-imported -- provides CQL session |
 | `this_dc` (fixture) | `cqlpy/conftest.py` | Re-imported -- provides DC name |
 | `testpy_test_fixture_scope` | `runner.py` | Scope for `keyspace` fixture |
-| `get_testpy_test` | `suite/base.py` | `output_path` fixture |
+| `get_testpy_test` | `suite.py` | `output_path` fixture |
 | `add_host_option` | `runner.py` | `pytest_addoption` |
 | `add_cql_connection_options` | `runner.py` | `pytest_addoption` |
 
 ### Relationship to CQL Approval Suite
 
-The `PythonTestSuite` (see [test-suite-design.md](test-suite-design.md)
-Section 6.2) provides the suite-level configuration:
-- `test_file_ext = ".cql"` -- test file extension
-- `pattern = "*_test.cql"` -- discovery pattern
-
-The conftest provides the runtime fixtures that the approval test runner needs:
-a CQL session, a keyspace, and an output path for reject files.
+CQL approval tests use `TestSuite` (configured via
+`test/cql/test_config.yaml`).  The conftest provides the
+runtime fixtures that the approval test runner needs: a CQL session, a keyspace,
+and an output path for reject files.
 
 ### Data Flow
 
@@ -174,7 +171,7 @@ cql fixture (from cqlpy)
     |-- CQL session connected to Scylla
     v
 output_path fixture (autouse)
-    |-- get_testpy_test() --> PythonTestSuite instance
+    |-- get_testpy_test() --> TestSuite instance
     |-- provides reject file path in suite log_dir
     v
 CQL test execution

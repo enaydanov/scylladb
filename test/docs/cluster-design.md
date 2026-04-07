@@ -23,7 +23,7 @@ helper functions, and their interactions with the suite framework.
 ## 1. Overview
 
 `test/cluster/conftest.py` provides fixtures for the topology/cluster test suite
-(suite type: `Python`). Tests in this directory validate cluster topology
+. Tests in this directory validate cluster topology
 operations (node add/remove, replace, decommission, etc.) using a
 `ScyllaClusterManager` that provides full lifecycle control over multi-node
 clusters.
@@ -43,7 +43,7 @@ The file is 396 lines. Key responsibilities:
 
 From suite framework:
 - `testpy_test_fixture_scope` from `test.pylib.runner` -- dynamic fixture scoping
-- `get_testpy_test` from `test.pylib.suite.base` -- creates Test instances
+- `get_testpy_test` from `test.pylib.suite` -- creates Test instances
 - `add_cql_connection_options` from `test.pylib.runner` -- CLI options
 
 From test infrastructure:
@@ -272,9 +272,9 @@ Uses `async with` for proper cleanup.
 | Symbol | Source | Usage |
 |--------|--------|-------|
 | `testpy_test_fixture_scope` | `runner.py` | Scope for `manager_api_sock_path`, `manager_internal` |
-| `get_testpy_test` | `suite/base.py` | `manager` fixture -- creates Test for log paths |
+| `get_testpy_test` | `suite.py` | `manager` fixture -- creates Test for log paths |
 | `add_cql_connection_options` | `runner.py` | `pytest_addoption` |
-| `Test` (TYPE_CHECKING) | `suite/base.py` | Type annotation for `testpy_test` |
+| `Test` (TYPE_CHECKING) | `suite.py` | Type annotation for `testpy_test` |
 | `path_to` | `test/__init__.py` | `decode_backtrace` -- resolve scylla executable |
 | `TOP_SRC_DIR` | `test/__init__.py` | `decode_backtrace` -- seastar-addr2line path |
 
@@ -282,10 +282,10 @@ Uses `async with` for proper cleanup.
 
 ```
 testpy_test fixture (from runner.py)
-    |-- get_testpy_test() --> PythonTestSuite instance
+    |-- get_testpy_test() --> TestSuite instance
     v
 manager_api_sock_path fixture
-    |-- testpy_test.suite.clusters (cluster pool from PythonTestSuite)
+    |-- testpy_test.suite.clusters (cluster pool from TestSuite)
     |-- testpy_test.suite.log_dir (log directory)
     |-- ScyllaClusterManager(test_uname, clusters, base_dir, sock_path)
     |-- start manager in ThreadPoolExecutor
