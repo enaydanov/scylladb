@@ -147,9 +147,9 @@ Each symbol was classified as:
 
 | Function | Category | Status | Justification |
 |----------|----------|--------|---------------|
-| `add_host_option()` | SHARED | 🔄 REMAINING | Called from 5+ conftest files |
-| `add_cql_connection_options()` | SHARED | 🔄 REMAINING | Called from 5+ conftest files |
-| `add_s3_options()` | SHARED | 🔄 REMAINING | Called from 2+ conftest files |
+| `add_host_option()` | SHARED | ✅ MOVED | Moved to `runner.py` |
+| `add_cql_connection_options()` | SHARED | ✅ MOVED | Moved to `runner.py` |
+| `add_s3_options()` | SHARED | ✅ MOVED | Moved to `runner.py` |
 
 ---
 
@@ -329,7 +329,7 @@ fixture bodies.  Impact is limited to scope simplification.
 ### `test/broadcast_tables/conftest.py`, `test/cluster/object_store/conftest.py`
 
 Only import utility functions (`add_host_option`, `add_cql_connection_options`,
-`add_s3_options`).  No test.py-specific code.
+`add_s3_options`) from `runner.py`.  No test.py-specific code.
 
 ---
 

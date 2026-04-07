@@ -54,8 +54,8 @@ respectively.
 | `CqlFile` | `test.pylib.cql_repl` | Custom pytest collector for `.cql` files |
 | `testpy_test_fixture_scope` | `test.pylib.runner` | Dynamic fixture scoping |
 | `get_testpy_test` | `test.pylib.suite.base` | Creates Test instances |
-| `add_host_option` | `test.pylib.suite.python` | CLI option helper |
-| `add_cql_connection_options` | `test.pylib.suite.python` | CLI option helper |
+| `add_host_option` | `test.pylib.runner` | CLI option helper |
+| `add_cql_connection_options` | `test.pylib.runner` | CLI option helper |
 
 ---
 
@@ -144,8 +144,8 @@ the expected `.result` file, enabling diff-based debugging.
 | `this_dc` (fixture) | `cqlpy/conftest.py` | Re-imported -- provides DC name |
 | `testpy_test_fixture_scope` | `runner.py` | Scope for `keyspace` fixture |
 | `get_testpy_test` | `suite/base.py` | `output_path` fixture |
-| `add_host_option` | `suite/python.py` | `pytest_addoption` |
-| `add_cql_connection_options` | `suite/python.py` | `pytest_addoption` |
+| `add_host_option` | `runner.py` | `pytest_addoption` |
+| `add_cql_connection_options` | `runner.py` | `pytest_addoption` |
 
 ### Relationship to CQL Approval Suite
 

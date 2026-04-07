@@ -42,7 +42,7 @@ From suite framework:
 - `testpy_test_fixture_scope` from `test.pylib.runner` -- dynamic fixture scoping
 - `PythonTest` from `test.pylib.suite.python` -- type annotation for `testpy_test`
 - `add_host_option`, `add_cql_connection_options`, `add_s3_options` from
-  `test.pylib.suite.python` -- CLI option registration helpers
+  `test.pylib.runner` -- CLI option registration helpers
 
 From local utilities (`test.cqlpy.util`):
 - `unique_name`, `new_test_keyspace`, `keyspace_has_tablets`, `cql_session`,
@@ -233,9 +233,9 @@ Skips S3-related tests if `--no-minio` option is set.
 |--------|--------|-------|
 | `testpy_test_fixture_scope` | `runner.py` | Dynamic scope for 10 fixtures |
 | `PythonTest` | `suite/python.py` | Type annotation in `host` fixture |
-| `add_host_option` | `suite/python.py` | `pytest_addoption` |
-| `add_cql_connection_options` | `suite/python.py` | `pytest_addoption` |
-| `add_s3_options` | `suite/python.py` | `pytest_addoption` |
+| `add_host_option` | `runner.py` | `pytest_addoption` |
+| `add_cql_connection_options` | `runner.py` | `pytest_addoption` |
+| `add_s3_options` | `runner.py` | `pytest_addoption` |
 
 ### Cluster Lifecycle
 

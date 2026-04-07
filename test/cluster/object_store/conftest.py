@@ -9,7 +9,7 @@ import logging
 
 # use minio_server
 from test.pylib.minio_server import MinioServer
-from test.pylib.suite.python import add_s3_options
+from test.pylib.runner import add_s3_options
 from test.pylib.dockerized_service import DockerizedServer
 from operator import attrgetter
 
