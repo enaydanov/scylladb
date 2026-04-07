@@ -266,7 +266,6 @@ class Test:
         self.uname = f"{self.suite.name}.{self.shortname.replace('/', '_')}.{self.id}"
         if xdist_worker_id := get_xdist_worker_id():
             self.uname = f"{xdist_worker_id}.{self.uname}"
-        self.log_filename = self.suite.log_dir / f"{self.uname}.log"
         self.success = False
         self.time_start: float = 0
         self.time_end: float = 0

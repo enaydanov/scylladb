@@ -247,10 +247,12 @@ async def manager(request: pytest.FixtureRequest,
     """
     testpy_test = await get_testpy_test(path=request.path, options=request.config.option, mode=build_mode)
     test_case_name = request.node.name
-    suite_testpy_log = testpy_test.log_filename
-    test_log = suite_testpy_log.parent / f"{Path(suite_testpy_log.stem).stem}.{test_case_name}.log"
+    log_dir = testpy_test.suite.log_dir
+    # uname is "suitename.shortname.id"; strip the trailing ".id"
+    base_name = testpy_test.uname.rsplit(".", 1)[0]
+    test_log = log_dir / f"{base_name}.{test_case_name}.log"
     # this should be consistent with scylla_cluster.py handler name in _before_test method
-    test_py_log_test = suite_testpy_log.parent / f"{test_log.stem}_cluster.log"
+    test_py_log_test = log_dir / f"{base_name}.{test_case_name}_cluster.log"
 
     manager_client = manager_internal()  # set up client object in fixture with scope function
     await manager_client.before_test(test_case_name, test_log)
@@ -272,7 +274,7 @@ async def manager(request: pytest.FixtureRequest,
             # Save scylladb logs for failed tests in a separate directory and copy XML report to the same directory to have
             # all related logs in one dir.
             # Then add property to the XML report with the path to the directory, so it can be visible in Jenkins
-            failed_test_dir_path = testpy_test.suite.log_dir / "failed_test" / test_case_name.translate(
+            failed_test_dir_path = log_dir / "failed_test" / test_case_name.translate(
                 str.maketrans('[]', '()'))
             failed_test_dir_path.mkdir(parents=True, exist_ok=True)
 

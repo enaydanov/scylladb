@@ -216,7 +216,6 @@ Sets the following instance state:
 | `mode` | `suite.mode` |
 | `suite` | Back-reference to parent suite |
 | `uname` | Unique name: `"suite.shortname.id"` (with `/` replaced by `_`). If running under xdist, prefixed with the worker ID. |
-| `log_filename` | `suite.log_dir / "{uname}.log"` |
 | `success` | `False` |
 | `time_start` | `0` |
 | `time_end` | `0` |

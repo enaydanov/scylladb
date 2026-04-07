@@ -136,9 +136,9 @@ task monitoring CPU/memory to SQLite during the entire test session.  Options:
   it blocks full migration.
 
 **`cluster/conftest.py` decoupling** -- The `manager` fixture calls
-`get_testpy_test()` solely for log path computation.  This instantiates a
-full `TestSuite` + `Test` object just for strings like `log_dir` and
-`log_filename`.  To decouple:
+`get_testpy_test()` solely for log path computation.  `Test.log_filename`
+has been removed; the fixture now uses `suite.log_dir` and `uname` directly.
+To fully decouple:
 - Compute log paths directly from pytest's `tmp_path` or a configuration
   fixture.
 - Remove the `get_testpy_test()` dependency.
