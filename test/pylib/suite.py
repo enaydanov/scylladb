@@ -84,7 +84,6 @@ class TestSuite:
         self.options = options
         self.mode = mode
         self.suite_key = os.path.join(path, mode)
-        self.tests: List['Test'] = []
         # environment variables that should be the base of all processes running in this suit
         self.base_env = {}
         if self.need_coverage():
@@ -240,17 +239,13 @@ class TestSuite:
         return create_cluster
 
 
-    async def add_test(self, shortname, casename) -> None:
-        test = Test(self.next_id((shortname, self.suite_key)), shortname, casename, self)
-        self.tests.append(test)
-
     def need_coverage(self):
         return self.options.coverage and (self.mode in self.options.coverage_modes) and bool(self.cfg.get("coverage",True))
 
 
 class Test:
     """Run a pytest collection of cases against a standalone Scylla"""
-    def __init__(self, test_no: int, shortname: str, casename: str, suite) -> None:
+    def __init__(self, test_no: int, shortname: str, suite) -> None:
         self.id = test_no
         self.args: List[str] = []
         # Arguments which are required by a program regardless of additional test specific arguments
@@ -269,7 +264,6 @@ class Test:
         self.success = False
         self.time_start: float = 0
         self.time_end: float = 0
-        self.casename = casename
         self.server_address: str | None = None
         self.server_log_filename: Optional[pathlib.Path] = None
         self.is_before_test_ok = False
@@ -427,5 +421,6 @@ async def get_testpy_test(path: pathlib.Path, options: argparse.Namespace, mode:
         suite.scylla_exe = options.exe_path
     elif getattr(options, "exe_url", False):
         suite.scylla_exe = await get_scylla_executable(options.exe_url)
-    await suite.add_test(shortname=str(path.relative_to(suite.suite_path).with_suffix("")), casename=None)
-    return suite.tests[-1]
+    shortname = str(path.relative_to(suite.suite_path).with_suffix(""))
+    test_no = suite.next_id((shortname, suite.suite_key))
+    return Test(test_no, shortname, suite)

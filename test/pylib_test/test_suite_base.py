@@ -457,5 +457,5 @@ def _make_python_suite(path: str, cfg: dict, options, mode: str):
 
 def _make_python_test(test_no: int, shortname: str, suite):
     """Create a Test instance."""
-    return Test(test_no, shortname, None, suite)
+    return Test(test_no, shortname, suite)
 

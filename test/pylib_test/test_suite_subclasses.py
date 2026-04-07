@@ -43,7 +43,7 @@ class TestRunCtx:
 
         suite = self._make_suite(tmp_path, mock_options, cfg, mode)
         test_no = suite.next_id((shortname, suite.suite_key))
-        return Test(test_no, shortname, None, suite)
+        return Test(test_no, shortname, suite)
 
     def _mock_cluster(self):
         """Create a mock cluster with the interface run_ctx() expects.

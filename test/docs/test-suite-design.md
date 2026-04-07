@@ -137,7 +137,6 @@ Sets the following instance state:
 | `options` | CLI options namespace |
 | `mode` | Build mode string |
 | `suite_key` | `os.path.join(path, mode)` |
-| `tests` | Empty list, populated later by `add_test()` |
 | `base_env` | Base environment dict. If coverage is needed, adds `LLVM_PROFILE_FILE`. |
 | `scylla_exe` | Path to the Scylla executable for the current mode, resolved via `path_to(mode, "scylla")`. |
 | `dirties_cluster` | Set of test shortnames from `cfg["dirties_cluster"]`. Tests in this set cause their cluster to be marked dirty after execution. |
@@ -173,9 +172,6 @@ described in Section 2.2.
 the current mode is in the coverage modes, and the suite config does not set
 `coverage: false`.
 
-**`add_test(shortname, casename)`** (async): creates a `Test` instance with
-ID key `(shortname, self.suite_key)` and appends it to `self.tests`.
-
 ### 4.4 Cluster Factory (`get_cluster_factory`)
 
 Returns an async `create_cluster` function that:
@@ -204,7 +200,7 @@ Returns an async `create_cluster` function that:
 
 ### 5.1 Constructor
 
-**Parameters:** `test_no: int`, `shortname: str`, `casename: str`, `suite: TestSuite`
+**Parameters:** `test_no: int`, `shortname: str`, `suite: TestSuite`
 
 Sets the following instance state:
 
@@ -219,7 +215,6 @@ Sets the following instance state:
 | `success` | `False` |
 | `time_start` | `0` |
 | `time_end` | `0` |
-| `casename` | Optional case name within the test file |
 | `server_address` | `None` initially; set to the cluster endpoint before test execution |
 | `server_log_filename` | `None` initially; populated from the cluster during `run_ctx()` |
 | `is_before_test_ok` / `is_after_test_ok` | `False`; lifecycle flags to distinguish pre-test failures from test failures from post-test failures |
@@ -298,8 +293,8 @@ Creates a single `Test` instance for a given file path:
 1. Finds the suite config using `TEST_CONFIG_FILENAME` (`"test_config.yaml"`).
 2. Creates/retrieves the suite via `TestSuite.opt_create()`.
 3. If `options.exe_path` or `options.exe_url` is set, overrides `suite.scylla_exe`.
-4. Calls `suite.add_test(shortname, casename=None)`.
-5. Returns `suite.tests[-1]` (the newly added test).
+4. Creates a `Test` instance directly with a monotonic ID from `suite.next_id()`.
+5. Returns the new `Test` instance.
 
 This function is the primary bridge between the pytest fixture system and the
 suite framework.
