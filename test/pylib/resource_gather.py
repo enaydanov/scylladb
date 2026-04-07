@@ -70,6 +70,8 @@ class ResourceGather(ABC):
             self.loop = asyncio.new_event_loop()
             self.own_loop = True
         self.test = test
+        self.time_start: float = 0
+        self.time_end: float = 0
         self.db_path = self.test.suite.log_dir.parent / DEFAULT_DB_NAME
         standardized_name = self.test.shortname.replace("/", "_")
         self.cgroup_path = Path(
@@ -160,9 +162,9 @@ class ResourceGatherOn(ResourceGather):
 
     def get_test_metrics(self) -> Metric:
         test_metrics: Metric = Metric(test_id=self.test_id, host_id=HOST_ID)
-        test_metrics.time_taken = self.test.time_end - self.test.time_start
-        test_metrics.time_start = datetime.fromtimestamp(self.test.time_start)
-        test_metrics.time_end = datetime.fromtimestamp(self.test.time_end)
+        test_metrics.time_taken = self.time_end - self.time_start
+        test_metrics.time_start = datetime.fromtimestamp(self.time_start)
+        test_metrics.time_end = datetime.fromtimestamp(self.time_end)
         test_metrics.success = self.test.success
         memory_peak = self.cgroup_path / 'memory.peak'
         if memory_peak.exists():
@@ -183,13 +185,13 @@ class ResourceGatherOn(ResourceGather):
                     env: dict | None = None) -> subprocess.Popen[str]:
         stop_monitoring = asyncio.Event()
 
-        self.test.time_start = time.time()
+        self.time_start = time.time()
         test_resource_watcher = self.cgroup_monitor(test_event=stop_monitoring)
         try:
             p = super().run_process(args=args, timeout=timeout, output_file=output_file, cwd=cwd, env=env)
         finally:
             stop_monitoring.set()
-            self.test.time_end = time.time()
+            self.time_end = time.time()
             self.loop.run_until_complete(asyncio.gather(test_resource_watcher))
         return p
 

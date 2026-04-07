@@ -177,8 +177,6 @@ class CppTestCase(pytest.Item):
         It needed to not change the logic of writing metrics to DB that used in test types from test.py.
         """
         return SimpleNamespace(
-            time_end=0,
-            time_start=0,
             id=self.parent.run_id,
             mode=self.parent.build_mode,
             success=False,

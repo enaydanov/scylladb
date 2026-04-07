@@ -260,8 +260,6 @@ class Test:
         if xdist_worker_id := get_xdist_worker_id():
             self.uname = f"{xdist_worker_id}.{self.uname}"
         self.success = False
-        self.time_start: float = 0
-        self.time_end: float = 0
         self.server_address: str | None = None
         self.is_before_test_ok = False
         self.is_after_test_ok = False
