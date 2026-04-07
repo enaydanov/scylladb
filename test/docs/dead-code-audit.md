@@ -227,32 +227,39 @@ re-export was removed.
 
 | Function | Category | Status | Justification |
 |----------|----------|--------|---------------|
-| `setup_signal_handlers()` | LEGACY-ONLY | 🔄 REMAINING | Still used in `main()` for signal handling during pytest execution; deferred to Phase 3 |
-| `parse_cmd_line()` | SHARED | 🔄 REMAINING | Most args consumed by both; some are legacy-only |
+| `setup_signal_handlers()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 3 — asyncio event loop no longer used |
+| `parse_cmd_line()` | SHARED | 🔄 REMAINING (simplified) | Dead options removed in Phase 3: `--no-parallel-cases`, `--log-level`, `--coverage-keep-*`, `--artifacts_dir_url`, `--manual-execution`, `--skip-internet-dependent-tests` |
 | `find_tests()` | LEGACY-ONLY | ✅ REMOVED | Discovered zero tests (no `suite.yaml` exists) |
-| `run_pytest()` | PYTEST-ONLY | 🔄 REMAINING | Core pytest pipeline |
-| `run_all_tests()` | MIXED | 🔄 REMAINING (simplified) | ~60 lines of async scaffolding removed; now only runs `run_pytest()` in executor and cleans up artifacts |
-| `print_summary()` | SHARED | 🔄 REMAINING (simplified) | Removed `failed_tests` and `cancelled_tests` params; now takes only `options`, `failed_pytest_tests`, `total_tests_pytest` |
-| `open_log()` | SHARED | 🔄 REMAINING | Log file creation |
-| `main()` | MIXED | 🔄 REMAINING (simplified) | Removed `find_tests()` call, legacy all_tests() iteration, manual_execution block, and failed/cancelled test collection from all_tests() |
-| `process_coverage()` | LEGACY-ONLY | 🔄 REMAINING | 248 lines; iterates `TestSuite.all_tests()` (empty); already non-functional. Deferred to Phase 3 |
+| `run_pytest()` | PYTEST-ONLY | 🔄 REMAINING (simplified) | Now returns `int` (exit code) instead of `tuple[int, list]`; JUnit XML parsing removed in Phase 3 |
+| `run_all_tests()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 3 — async executor wrapper no longer needed |
+| `print_summary()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 3 — pytest provides its own summary |
+| `open_log()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 3 — runner.py handles logging via `pytest_configure` |
+| `main()` | SHARED | 🔄 REMAINING (simplified) | Phase 3: now synchronous `def` (not `async def`); calls parse_cmd_line, run_pytest, optional coverage report |
+| `process_coverage()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 3 — 248 lines; was already non-functional (`TestSuite.all_tests()` returned nothing) |
 
-### Legacy-Only Imports in test.py — Phase 1 Status
+### Legacy-Only Imports in test.py — Phase 3 Status
 
 | Import | Status | Justification |
 |--------|--------|---------------|
-| `signal` | 🔄 REMAINING | Still used by `setup_signal_handlers()` |
-| `humanfriendly` | 🔄 REMAINING | Used by `process_coverage()` (deferred to Phase 3) |
-| `treelib` | 🔄 REMAINING | Used by `process_coverage()` (deferred to Phase 3) |
-| `test.pylib.coverage_utils` | 🔄 REMAINING | Used by `process_coverage()` (deferred to Phase 3) |
-| `test.pylib.resource_gather.run_resource_watcher` | 🔄 REMAINING | Used in `main()` for resource monitoring |
-| `test.pylib.util.LogPrefixAdapter` | 🔄 REMAINING | Used by `process_coverage()` (deferred to Phase 3) |
-| `output_is_a_tty` (from suite.base) | ✅ REMOVED (from test.py import) | Was only used by `TabularConsoleOutput` |
-| `init_testsuite_globals` (from suite.base) | 🔄 REMAINING | Still called in `main()` |
-| `prepare_environment` (from suite.base) | 🔄 REMAINING | Still called in `main()` |
-| `SUITE_CONFIG_FILENAME` (from suite.base) | ✅ REMOVED (import and constant) | Was only used by `find_tests()` |
-| `glob` | ✅ REMOVED | Completely unused — dead import |
-| `itertools` | 🔄 REMAINING | Used by `process_coverage()` (`itertools.product` at line 509) |
+| `asyncio` | ✅ REMOVED | Removed in Phase 3 — `main()` is now synchronous |
+| `signal` | ✅ REMOVED | Removed in Phase 3 — `setup_signal_handlers()` deleted |
+| `time` | ✅ REMOVED | Removed in Phase 3 — `launch_time` and `print_summary()` deleted |
+| `resource` | ✅ REMOVED | Removed in Phase 3 — `print_summary()` CPU utilization deleted |
+| `xml.etree.ElementTree` | ✅ REMOVED | Removed in Phase 3 — JUnit XML parsing deleted from `run_pytest()` |
+| `humanfriendly` | ✅ REMOVED | Removed in Phase 3 — `process_coverage()` deleted |
+| `treelib` | ✅ REMOVED | Removed in Phase 3 — `process_coverage()` deleted |
+| `itertools` | ✅ REMOVED | Removed in Phase 3 — `process_coverage()` deleted |
+| `test.pylib.coverage_utils` | ✅ REMOVED | Removed in Phase 3 — `process_coverage()` deleted |
+| `test.pylib.resource_gather.run_resource_watcher` | ✅ REMOVED | Removed in Phase 3 — resource watcher moved to runner.py |
+| `test.pylib.util.LogPrefixAdapter` | ✅ REMOVED | Removed in Phase 3 — `process_coverage()` deleted |
+| `output_is_a_tty` (from suite.base) | ✅ REMOVED (Phase 1) | Was only used by `TabularConsoleOutput` |
+| `init_testsuite_globals` (from suite.base) | ✅ REMOVED | Removed in Phase 3 — runner.py handles initialization |
+| `prepare_environment` (from suite.base) | ✅ REMOVED | Removed in Phase 3 — runner.py handles environment setup |
+| `TestSuite` (from suite.base) | ✅ REMOVED | Removed in Phase 3 — runner.py handles artifacts/cleanup |
+| `TESTPY_PREPARED_ENVIRONMENT` (from test) | ✅ REMOVED | Removed in Phase 3 — test.py no longer sets this env var |
+| `SimpleNamespace` (from types) | ✅ REMOVED | Removed in Phase 3 — `run_pytest()` no longer creates SimpleNamespace objects |
+| `SUITE_CONFIG_FILENAME` (from suite.base) | ✅ REMOVED (Phase 1) | Was only used by `find_tests()` |
+| `glob` | ✅ REMOVED (Phase 1) | Completely unused — dead import |
 
 ---
 
@@ -358,10 +365,12 @@ Only import utility functions (`add_host_option`, `add_cql_connection_options`,
 
 | Block | File | Size | Phase |
 |-------|------|------|-------|
-| `process_coverage()` | `test.py` | 248 lines | Phase 3 |
-| `--test-py-init` guarded code | `runner.py` | ~120 lines | ✅ Removed in Phase 2 |
-| `run_all_tests()` async scaffolding (remaining) | `test.py` | ~14 lines | Phase 3 |
-| `manager_api_sock_path` else branch | `cluster/conftest.py` | ~25 lines | Phase 2 |
+| `process_coverage()` | `test.py` | ✅ Removed in Phase 3 | |
+| `--test-py-init` guarded code | `runner.py` | ✅ Removed in Phase 2 | |
+| `run_all_tests()` async scaffolding | `test.py` | ✅ Removed in Phase 3 | |
+| `setup_signal_handlers()` | `test.py` | ✅ Removed in Phase 3 | |
+| `print_summary()` / `open_log()` | `test.py` | ✅ Removed in Phase 3 | |
+| `manager_api_sock_path` else branch | `cluster/conftest.py` | ~25 lines | Phase 4 |
 
 ### Fixture Scope: `testpy_test_fixture_scope` — Condition Changed (Phase 2)
 

@@ -5,6 +5,8 @@
 #
 
 import allure
+import os
+
 import pytest
 
 from test import TEST_RUNNER
@@ -24,6 +26,10 @@ else:
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    # gh-16583: ignore the inherited client host's ScyllaDB environment,
+    # since it may break the tests
+    os.environ.pop("SCYLLA_CONF", None)
+    os.environ.pop("SCYLLA_HOME", None)
     config.pluginmanager.register(ReportPlugin())
 
     def _allure_report(skip_type: str, reason: str) -> None:

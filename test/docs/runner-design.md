@@ -39,7 +39,7 @@ that provides the following capabilities:
 - **Lifecycle management**: initializes suite globals and prepares the environment
   during session start, cleans up during session finish.
 
-The file is approximately 469 lines.
+The file is approximately 527 lines.
 
 ---
 
@@ -60,6 +60,13 @@ From `test/__init__.py`:
 - `TOP_SRC_DIR` -- repository root
 - `TESTPY_PREPARED_ENVIRONMENT` -- env var gate
 - `HOST_ID` -- unique host identifier
+
+Resource watcher imports:
+- `threading` -- thread management for resource monitor
+- `datetime` -- timestamp generation
+- `psutil` -- CPU/memory polling
+- `test.pylib.db.model.SystemResourceMetric` -- data model for metrics
+- `test.pylib.db.writer.SQLiteWriter`, `DEFAULT_DB_NAME`, `SYSTEM_RESOURCE_METRICS_TABLE` -- database writes
 
 ### 2.2 StashKeys
 
@@ -93,6 +100,8 @@ A fifth StashKey, `TEST_SUITE`, is defined at module level (line 423) after the
 |----------|------|---------|
 | `logger` | `logging.Logger` | Module-level logger |
 | `_pytest_config` | `pytest.Config \| None` | Global config reference, set in `pytest_configure` |
+| `_resource_watcher_stop` | `threading.Event \| None` | Stop signal for resource monitor thread |
+| `_resource_watcher_thread` | `threading.Thread \| None` | Background resource monitoring thread |
 
 ---
 
@@ -170,6 +179,8 @@ Runs during session startup. Gates:
 **Environment preparation** (main process only, if test.py hasn't prepared):
 - Calls `prepare_environment()` with tmpdir, modes, gather_metrics,
   save_log_on_success, and byte_limit.
+- If `--gather-metrics` is true: starts the resource watcher via
+  `_start_resource_watcher(temp_dir)`.
 
 The xdist detection uses `xdist.is_xdist_worker(request_or_session=session)`.
 
@@ -180,10 +191,13 @@ Runs during session teardown.
 1. **Log cleanup**: if not xdist-worker-in-test.py-mode, and all tests passed,
    and `--save-log-on-success` is false: deletes the pytest log file.
 
-2. **Artifact cleanup** (non-worker, non-test.py): calls
+2. **Resource watcher shutdown** (non-worker, non-test.py): calls
+   `_stop_resource_watcher()` to stop the background monitoring thread.
+
+3. **Artifact cleanup** (non-worker, non-test.py): calls
    `asyncio.run(TestSuite.artifacts.cleanup_before_exit())`.
 
-3. **Exit code**: if `maxfail > 0` and `testsfailed >= maxfail`, sets
+4. **Exit code**: if `maxfail > 0` and `testsfailed >= maxfail`, sets
    `session.exitstatus = EXIT_MAXFAIL_REACHED` (11) for CI detection.
 
 ---
@@ -424,7 +438,41 @@ collector to item.
 
 ---
 
-## 11. Integration Summary
+## 11. Resource Watcher
+
+The resource watcher monitors system CPU and memory utilization during test
+execution, writing periodic snapshots to SQLite for post-run analysis.
+
+### 11.1 Architecture
+
+The watcher uses a daemon thread (not asyncio) to decouple from the pytest
+event loop.  Three module-level functions manage the lifecycle:
+
+**`_resource_monitor_loop(stop_event, tmpdir)`**: the thread target.  Creates a
+`SQLiteWriter` and loops every 2 seconds (using `stop_event.wait(timeout=2.0)`).
+Each iteration calls `psutil.cpu_percent(interval=0.1)` and
+`psutil.virtual_memory().percent`, wraps the values in a `SystemResourceMetric`
+record, and writes to the `SYSTEM_RESOURCE_METRICS_TABLE`.
+
+**`_start_resource_watcher(tmpdir)`**: creates a `threading.Event` and
+`threading.Thread`, starts the thread.
+
+**`_stop_resource_watcher()`**: sets the stop event, joins the thread with a
+5-second timeout, and resets both globals to `None`.
+
+### 11.2 Integration
+
+- **Started** in `pytest_sessionstart` after `prepare_environment()`, only when
+  `--gather-metrics` is true and the session is not an xdist worker.
+- **Stopped** in `pytest_sessionfinish` before artifact cleanup, only for the
+  main process (after the xdist worker early-return check).
+- **Safe to skip**: if `--gather-metrics` is false (default for bare pytest),
+  the watcher is never started.  `_stop_resource_watcher()` is a no-op when
+  no watcher is running.
+
+---
+
+## 12. Integration Summary
 
 ### Suite Framework Usage
 
@@ -436,6 +484,8 @@ collector to item.
 | `init_testsuite_globals()` | `pytest_sessionstart` -- global setup |
 | `prepare_environment()` | `pytest_sessionstart` -- directory and service setup |
 | `get_testpy_test()` | `testpy_test` fixture -- creates Test instances |
+| `SystemResourceMetric` | `_resource_monitor_loop` -- metric records |
+| `SQLiteWriter` | `_resource_monitor_loop` -- database writes |
 
 ### Key Design Decisions
 
@@ -475,6 +525,7 @@ pytest_configure()
 pytest_sessionstart()
     |-- init_testsuite_globals()  ------> TestSuite.artifacts, TestSuite.hosts
     |-- prepare_environment()     ------> directories, 3rd-party services
+    |-- _start_resource_watcher() ------> daemon thread polling CPU/memory
     v
 pytest_collect_file()  (per file)
     |-- TestSuiteConfig.from_pytest_node()  --> reads test_config.yaml
@@ -499,6 +550,7 @@ pytest_runtest_logreport()
     v
 pytest_sessionfinish()
     |-- clean up log files
+    |-- _stop_resource_watcher()  ------> stop daemon thread
     |-- TestSuite.artifacts.cleanup_before_exit()
     |-- set EXIT_MAXFAIL_REACHED if applicable
 ```

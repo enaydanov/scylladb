@@ -6,16 +6,22 @@
 
 """Unit tests for test/pylib/runner.py — pytest plugin behavior.
 
-These tests verify Phase 2 changes: the removal of --test-py-init and the
-change of testpy_test_fixture_scope to use TEST_RUNNER instead.
+These tests verify:
+- Phase 2 changes: the removal of --test-py-init and the change of
+  testpy_test_fixture_scope to use TEST_RUNNER instead.
+- Phase 3 changes: the thread-based resource watcher moved from test.py.
 """
 
 import os
-from unittest.mock import MagicMock, patch
+import threading
+from unittest.mock import MagicMock, patch, call
 
 import pytest
 
 from test.pylib.runner import (
+    _resource_monitor_loop,
+    _start_resource_watcher,
+    _stop_resource_watcher,
     pytest_addoption,
     pytest_configure,
     pytest_runtest_makereport,
@@ -158,3 +164,127 @@ class TestHookBehavior:
         except StopIteration:
             pass
         outcome.get_result.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Resource watcher — thread-based system resource monitoring
+# ---------------------------------------------------------------------------
+
+
+class TestResourceWatcher:
+    """Verify the thread-based resource watcher lifecycle."""
+
+    @patch("test.pylib.runner.SQLiteWriter")
+    @patch("test.pylib.runner.psutil")
+    def test_monitor_loop_writes_metrics(self, mock_psutil, mock_writer_cls, tmp_path):
+        """_resource_monitor_loop writes SystemResourceMetric records to SQLite.
+
+        The loop calls stop_event.wait(timeout=2.0); when wait returns False
+        (timeout expired, not stopped), it writes a metric.  We mock the stop
+        event's wait method to return False once (triggering one write), then
+        True (stopping the loop), avoiding the 2-second real wait.
+        """
+        mock_psutil.cpu_percent.return_value = 42.5
+        mock_psutil.virtual_memory.return_value = MagicMock(percent=65.0)
+        mock_writer = MagicMock()
+        mock_writer_cls.return_value = mock_writer
+
+        stop_event = MagicMock()
+        # First call: not stopped (write happens), second call: stopped (loop exits)
+        stop_event.wait.side_effect = [False, True]
+
+        _resource_monitor_loop(stop_event, tmp_path)
+
+        assert mock_writer.write_row.call_count == 1
+        record = mock_writer.write_row.call_args_list[0].args[0]
+        assert record.cpu == 42.5
+        assert record.memory == 65.0
+
+    @patch("test.pylib.runner._resource_monitor_loop")
+    def test_start_creates_and_starts_thread(self, mock_loop, tmp_path):
+        """_start_resource_watcher creates a daemon thread and starts it."""
+        import test.pylib.runner as runner
+
+        _start_resource_watcher(tmp_path)
+
+        try:
+            assert runner._resource_watcher_thread is not None
+            assert runner._resource_watcher_stop is not None
+            assert runner._resource_watcher_thread.daemon is True
+            assert runner._resource_watcher_thread.name == "resource-watcher"
+        finally:
+            _stop_resource_watcher()
+
+    @patch("test.pylib.runner._resource_monitor_loop")
+    def test_stop_sets_event_and_joins(self, mock_loop, tmp_path):
+        """_stop_resource_watcher sets the stop event and joins the thread."""
+        import test.pylib.runner as runner
+
+        _start_resource_watcher(tmp_path)
+        thread = runner._resource_watcher_thread
+        stop_event = runner._resource_watcher_stop
+
+        _stop_resource_watcher()
+
+        assert stop_event.is_set()
+        assert not thread.is_alive()
+        assert runner._resource_watcher_thread is None
+        assert runner._resource_watcher_stop is None
+
+    def test_stop_is_safe_when_not_started(self):
+        """_stop_resource_watcher is a no-op when no watcher is running."""
+        import test.pylib.runner as runner
+
+        runner._resource_watcher_stop = None
+        runner._resource_watcher_thread = None
+        _stop_resource_watcher()  # should not raise
+
+    @patch("test.pylib.runner._start_resource_watcher")
+    @patch("test.pylib.runner.prepare_environment")
+    @patch("test.pylib.runner.TestSuite")
+    @patch("test.pylib.runner.init_testsuite_globals")
+    @patch("test.pylib.runner.xdist")
+    @patch("test.pylib.runner.TEST_RUNNER", "pytest")
+    @patch("test.pylib.runner.get_modes_to_run", return_value=["debug"])
+    def test_sessionstart_starts_watcher_when_gather_metrics(
+        self, mock_get_modes, mock_xdist, mock_init, mock_ts, mock_prep, mock_start
+    ):
+        """pytest_sessionstart starts the resource watcher when --gather-metrics is True."""
+        mock_xdist.is_xdist_worker.return_value = False
+        session = MagicMock()
+        session.config.getoption.side_effect = lambda opt: {
+            "--collect-only": False,
+            "--tmpdir": "/tmp/test",
+            "--gather-metrics": True,
+            "--save-log-on-success": False,
+            "--byte-limit": 100,
+        }[opt]
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TESTPY_PREPARED_ENVIRONMENT", None)
+            pytest_sessionstart(session)
+        mock_start.assert_called_once()
+
+    @patch("test.pylib.runner._start_resource_watcher")
+    @patch("test.pylib.runner.prepare_environment")
+    @patch("test.pylib.runner.TestSuite")
+    @patch("test.pylib.runner.init_testsuite_globals")
+    @patch("test.pylib.runner.xdist")
+    @patch("test.pylib.runner.TEST_RUNNER", "pytest")
+    @patch("test.pylib.runner.get_modes_to_run", return_value=["debug"])
+    def test_sessionstart_skips_watcher_when_no_gather_metrics(
+        self, mock_get_modes, mock_xdist, mock_init, mock_ts, mock_prep, mock_start
+    ):
+        """pytest_sessionstart does not start the resource watcher when --gather-metrics is False."""
+        mock_xdist.is_xdist_worker.return_value = False
+        session = MagicMock()
+        session.config.getoption.side_effect = lambda opt: {
+            "--collect-only": False,
+            "--tmpdir": "/tmp/test",
+            "--gather-metrics": False,
+            "--save-log-on-success": False,
+            "--byte-limit": 100,
+        }[opt]
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TESTPY_PREPARED_ENVIRONMENT", None)
+            pytest_sessionstart(session)
+        mock_start.assert_not_called()

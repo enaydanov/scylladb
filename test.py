@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import math
 import shlex
 import textwrap
@@ -18,34 +17,18 @@ from random import randint
 
 import pytest
 
-from types import SimpleNamespace
-
 import colorama
-import itertools
 import logging
 import multiprocessing
 import os
 import pathlib
-import resource
-import signal
 import subprocess
 import sys
-import time
-import xml.etree.ElementTree as ET
-import humanfriendly
-import treelib
 
 from scripts import coverage
-from test import ALL_MODES, HOST_ID, TOP_SRC_DIR, path_to, TEST_DIR, TESTPY_PREPARED_ENVIRONMENT
-from test.pylib import coverage_utils
-from test.pylib.suite.base import (
-    TestSuite,
-    init_testsuite_globals,
-    palette,
-    prepare_environment,
-)
-from test.pylib.resource_gather import run_resource_watcher
-from test.pylib.util import LogPrefixAdapter, get_configured_modes
+from test import ALL_MODES, HOST_ID, TOP_SRC_DIR, path_to, TEST_DIR
+from test.pylib.suite.base import palette
+from test.pylib.util import get_configured_modes
 
 PYTEST_RUNNER_DIRECTORIES = [
     TEST_DIR / 'boost',
@@ -63,7 +46,6 @@ PYTEST_RUNNER_DIRECTORIES = [
     TEST_DIR / 'cluster',
 ]
 
-launch_time = time.monotonic()
 
 class ThreadsCalculator:
     """
@@ -109,21 +91,6 @@ class ThreadsCalculator:
         default_num_jobs_cpu = max(1, math.ceil(nr_cpus / self.cpus_per_test_job))
         return min(self.default_num_jobs_mem, default_num_jobs_cpu)
 
-
-
-def setup_signal_handlers(loop, signaled) -> None:
-
-    async def shutdown(loop, signo, signaled):
-        print("\nShutdown requested... Aborting tests:"),
-        signaled.signo = signo
-        signaled.set()
-
-    # Use a lambda to avoid creating a coroutine until
-    # the signal is delivered to the loop - otherwise
-    # the coroutine will be dangling when the loop is over,
-    # since it's never going to be invoked
-    for signo in [signal.SIGINT, signal.SIGTERM]:
-        loop.add_signal_handler(signo, lambda: asyncio.create_task(shutdown(loop, signo, signaled)))
 
 
 def parse_cmd_line() -> argparse.Namespace:
@@ -183,18 +150,9 @@ def parse_cmd_line() -> argparse.Namespace:
     parser.add_argument('--skip',
                         dest="skip_patterns", action="append",
                         help="Skip tests which match the provided pattern")
-    parser.add_argument('--no-parallel-cases', dest="parallel_cases", action="store_false", default=True,
-                        help="Do not run individual test cases in parallel")
     parser.add_argument('--cpus', action="store",
                         help="Run the tests on those CPUs only (in taskset"
                         " acceptable format). Consider using --jobs too")
-    parser.add_argument('--log-level', action="store",
-                        help="Log level for Python logging module. The log "
-                        "is in {tmpdir}/test.py.log. Default: INFO",
-                        default="INFO",
-                        choices=["CRITICAL", "ERROR", "WARNING", "INFO",
-                                 "DEBUG"],
-                        dest="log_level")
     parser.add_argument('-k', metavar="EXPRESSION", action="store",
                         help=f"Supported only for tests in {[str(d) for d in PYTEST_RUNNER_DIRECTORIES]} "
                         "directories. Only run tests which match the given substring expression. An expression is a Python evaluable expression where all names are "
@@ -216,24 +174,11 @@ def parse_cmd_line() -> argparse.Namespace:
                              "The lcov files can eventually be used for generating coverage reports")
     parser.add_argument("--coverage-mode",action = 'append', type = str, dest = "coverage_modes",
                         help = "Collect and process coverage only for the modes specified. implies: --coverage, default: All built modes")
-    parser.add_argument("--coverage-keep-raw",action = 'store_true',
-                        help = "Do not delete llvm raw profiles when processing coverage reports.")
-    parser.add_argument("--coverage-keep-indexed",action = 'store_true',
-                        help = "Do not delete llvm indexed profiles when processing coverage reports.")
-    parser.add_argument("--coverage-keep-lcovs",action = 'store_true',
-                        help = "Do not delete intermediate lcov traces when processing coverage reports.")
-    parser.add_argument("--artifacts_dir_url", action='store', type=str, default=None, dest="artifacts_dir_url",
-                        help="Provide the URL to artifacts directory to generate the link to failed tests directory "
-                             "with logs")
     parser.add_argument("--cluster-pool-size", action="store", default=None, type=int,
                         help="Set the pool_size for PythonTest and its descendants. Alternatively environment variable "
                              "CLUSTER_POOL_SIZE can be used to achieve the same")
-    parser.add_argument('--manual-execution', action='store_true', default=False,
-                        help='Let me manually run the test executable at the moment this script would run it')
     parser.add_argument('--byte-limit', action="store", default=randint(0, 2000), type=int,
                         help="Specific byte limit for failure injection (random by default)")
-    parser.add_argument('--skip-internet-dependent-tests', action="store_true",
-                        help="Skip tests which depend on artifacts from the internet.")
     parser.add_argument("--pytest-arg", action='store', type=str,
                         default=None, dest="pytest_arg",
                         help="Additional command line arguments to pass to pytest, for example ./test.py --pytest-arg=\"-v -x\"")
@@ -292,11 +237,10 @@ def parse_cmd_line() -> argparse.Namespace:
     return args
 
 
-def run_pytest(options: argparse.Namespace) -> tuple[int, list[SimpleNamespace]]:
+def run_pytest(options: argparse.Namespace) -> int:
     # When tests are executed in parallel on different hosts, we need to distinguish results from them.
     # So HOST_ID needed to not overwrite results from different hosts during Jenkins will copy to one directory.
 
-    failed_tests = []
     temp_dir = pathlib.Path(options.tmpdir).absolute()
     report_dir =  temp_dir / 'report'
     junit_output_file = report_dir / f'pytest_cpp_{HOST_ID}.xml'
@@ -312,7 +256,7 @@ def run_pytest(options: argparse.Namespace) -> tuple[int, list[SimpleNamespace]]
         files_to_run = [ TOP_SRC_DIR / 'test/']
     if not files_to_run:
         logging.info('Skipping pytest execution because no tests were selected for pytest.')
-        return 0, []
+        return 0
     args = [
         '--color=yes',
         f'--repeat={options.repeat}',
@@ -359,85 +303,20 @@ def run_pytest(options: argparse.Namespace) -> tuple[int, list[SimpleNamespace]]
         args.append('--save-log-on-success')
     if options.markers:
         args.append(f'-m={options.markers}')
+    if options.coverage:
+        args.append('--coverage')
+        for mode in (options.coverage_modes or []):
+            args.append(f'--coverage-mode={mode}')
+    args.append(f'--byte-limit={options.byte_limit}')
+    if options.exe_path:
+        args.append(f'--exe-path={options.exe_path}')
+    if options.exe_url:
+        args.append(f'--exe-url={options.exe_url}')
     args.extend(files_to_run)
-    pytest.main(args=args)
-
-    if options.list_tests:
-        return 0, []
-
-    suite = ET.parse(junit_output_file).getroot().find('testsuite')
-    total_tests = int(suite.get('tests'))
-
-    # Find failed tests in the pytest XML output, create a SimpleNamespace for each
-    for test_case in suite.findall('testcase'):
-        if test_case.find('error') is not None or test_case.find('failure') is not None:
-            classname = test_case.get('classname')
-            if classname.endswith('.cc'):
-                file_path, extension = test_case.get('classname').rsplit('.', 1)
-            else:
-                extension = 'py'
-                file_path = '/'.join(x for x in test_case.get('classname').split('.') if x.islower())
-            # get the test name without mode name
-            test_name = test_case.get('name').split('.')[0]
-            test = SimpleNamespace()
-
-            test.name = f"test/{file_path.replace('.', '/')}.{extension}::{test_name}"
-
-            failed_tests.append(test)
-
-    return total_tests, failed_tests
+    return pytest.main(args=args)
 
 
-
-async def run_all_tests(signaled: asyncio.Event, options: argparse.Namespace) -> tuple[int, list[
-    SimpleNamespace]] | None:
-    try:
-        # Run pytest in an executor to avoid blocking the event loop
-        # This allows resource monitoring to run concurrently
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, run_pytest, options)
-        total_tests = result[0]
-        failed_tests = list(result[1])
-        TestSuite.artifacts.add_exit_artifact(None, TestSuite.hosts.cleanup)
-    finally:
-        await TestSuite.artifacts.cleanup_before_exit()
-
-    return total_tests, failed_tests
-
-
-def print_summary(options: argparse.Namespace, failed_pytest_tests: list[SimpleNamespace], total_tests_pytest: int) -> None:
-    rusage = resource.getrusage(resource.RUSAGE_CHILDREN)
-    cpu_used = rusage.ru_stime + rusage.ru_utime
-    cpu_available = (time.monotonic() - launch_time) * multiprocessing.cpu_count()
-    utilization = cpu_used / cpu_available
-    print(f"CPU utilization: {utilization*100:.1f}%")
-    total_tests = total_tests_pytest
-    if failed_pytest_tests:
-        all_fails = list(failed_pytest_tests)
-        print(f'The following test(s) have failed: {" ".join(t.name for t in all_fails)}')
-        print(f"Summary: {len(all_fails)} of the total {total_tests} tests failed")
-    if total_tests == 0:
-        print( palette.warn(f"No tests were run, nothing to report. Please check your test selection criteria. "
-                            f"Due to the recent changes in the test.py, if you want to run a test from one of the "
-                            f"following directories: \n"
-                            f"{'\n'.join([f'{str(item.relative_to(TOP_SRC_DIR))}' for item in PYTEST_RUNNER_DIRECTORIES])}\nPlease use the path "
-                            f"to the test file with extension, e.g. 'test/boost/memtable_test.cc' instead of "
-                            f"'boost/memtable_test'"))
-
-
-def open_log(tmpdir: str, log_file_name: str, log_level: str) -> None:
-    pathlib.Path(tmpdir).mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        filename=os.path.join(tmpdir, log_file_name),
-        filemode="w",
-        level=log_level,
-        format="%(asctime)s.%(msecs)03d %(levelname)s> %(message)s",
-        datefmt="%H:%M:%S",
-    )
-    logging.critical("Started %s", " ".join(sys.argv))
-
-
-async def main() -> int:
+def main() -> int:
 
     options = parse_cmd_line()
 
@@ -445,311 +324,20 @@ async def main() -> int:
         run_pytest(options)
         return 0
 
-    open_log(options.tmpdir, f"test.py.{'-'.join(options.modes)}.log", options.log_level)
-    init_testsuite_globals()
-    await prepare_environment(
-        tempdir_base=pathlib.Path(options.tmpdir),
-        modes=options.modes,
-        gather_metrics=options.gather_metrics,
-        save_log_on_success=options.save_log_on_success,
-        toxiproxy_byte_limit=options.byte_limit,
-    )
-    os.environ[TESTPY_PREPARED_ENVIRONMENT] = '1'
-
-    signaled = asyncio.Event()
-    stop_event = asyncio.Event()
-    resource_watcher = run_resource_watcher(options.gather_metrics, signaled, stop_event, options.tmpdir)
-
-    setup_signal_handlers(asyncio.get_running_loop(), signaled)
-
-    try:
-        logging.info('running all tests')
-        total_tests_pytest, failed_pytest_tests = await run_all_tests(signaled, options)
-        logging.info('after running all tests')
-        stop_event.set()
-        async with asyncio.timeout(5):
-            await resource_watcher
-    except asyncio.CancelledError:
-        print('\ntests cancelled by signal')
-        return 1
-    except Exception as e:
-        print(palette.fail(e))
-        raise
-
-    if signaled.is_set():
-        return -signaled.signo      # type: ignore
-
-    print_summary(options, failed_pytest_tests, total_tests_pytest)
+    exit_code = run_pytest(options)
 
     if 'coverage' in options.modes:
         coverage.generate_coverage_report(path_to("coverage", "tests"))
 
-    if options.coverage:
-        await process_coverage(options)
-
     # Note: failure codes must be in the ranges 0-124, 126-127,
     #       to cooperate with git bisect's expectations
-    return 0 if not failed_pytest_tests else 1
-
-
-async def process_coverage(options):
-    total_processing_time = time.time()
-    logger = LogPrefixAdapter(logging.getLogger("coverage"), {'prefix' : 'coverage'})
-    modes_for_coverage = options.coverage_modes
-    # use about 75% of the machine's processing power.
-    concurrency = max(int(multiprocessing.cpu_count() * 0.75), 1)
-    logger.info(f"Processing coverage information for modes: {modes_for_coverage}, using {concurrency} cpus")
-    semaphore = asyncio.Semaphore(concurrency)
-    build_paths = [pathlib.Path(f"build/{mode}") for mode in modes_for_coverage]
-    paths_for_id_search = [bp / p for bp, p in itertools.product(build_paths, ["scylla", "test", "seastar"])]
-    logger.info("Getting binary ids for coverage conversion...")
-    files_to_ids_map = await coverage_utils.get_binary_ids_map(paths = paths_for_id_search,
-                                                               filter = coverage_utils.PROFILED_ELF_TYPES,
-                                                               semaphore = semaphore,
-                                                               logger = logger)
-    logger.debug(f"Binary ids map is: {files_to_ids_map}")
-    logger.info("Done getting binary ids for coverage conversion")
-    sources_to_exclude = [line for line in open("coverage_excludes.txt", 'r').read().split('\n') if line and not line.startswith('#')]
-    ran_suites = list({test.suite for test in TestSuite.all_tests() if test.suite.need_coverage()})
-
-    def suite_coverage_path(suite) -> pathlib.Path:
-        return pathlib.Path(suite.options.tmpdir) / suite.mode / 'coverage' / suite.name
-
-    def pathsize(path : pathlib.Path):
-        if path.is_file():
-            return os.path.getsize(path)
-        elif path.is_dir():
-            return sum([os.path.getsize(f) for f in path.glob("**/*") if f.is_file()])
-        else:
-            return 0
-    class Stats:
-        def __init__(self, name = "", size = 0, time = 0) -> None:
-            self.name = name
-            self.size = size
-            self.time = time
-        def __add__(self, other):
-            return Stats(self.name,
-                         size = self.size + other.size,
-                         time = self.time + other.time)
-        def __str__(self):
-            name = f"{self.name} - " if self.name else ""
-            fields = []
-            if self.size:
-                fields.append(f"size: {humanfriendly.format_size(self.size)}")
-            if self.time:
-                fields.append(f"time: {humanfriendly.format_timespan(self.time)}")
-            fields = ', '.join(fields)
-            return f"{name}{fields}"
-        @property
-        def asstring(self):
-            return str(self)
-
-    # a nested map of: mode -> suite -> unified_coverage_file
-    suits_trace_files = {}
-    stats = treelib.Tree()
-
-    RAW_PROFILE_STATS = "raw profiles"
-    INDEXED_PROFILE_STATS = "indexed profiles"
-    LCOV_CONVERSION_STATS = "lcov conversion"
-    LCOV_SUITES_MEREGE_STATS = "lcov per suite merge"
-    LCOV_MODES_MERGE_STATS = "lcov merge for mode"
-    LCOV_MERGE_ALL_STATS = "lcov merge all stats"
-    ROOT_NODE = stats.create_node(tag = time.time(),
-                                  identifier = "root",
-                                  data = Stats("Coverage Processing Stats", 0, 0))
-
-    for suite in list(ran_suites):
-        coverage_path = suite_coverage_path(suite)
-        if not coverage_path.exists():
-            logger.warning(f"Coverage dir for suite '{suite.name}' in mode '{suite.mode}' wasn't found, common reasons:\n\t"
-                "1. The suite doesn't use any instrumented binaries.\n\t"
-                "2. The binaries weren't compiled with coverage instrumentation.")
-            continue
-
-        # 1. Transform every suite raw profiles into indexed profiles
-        raw_profiles = list(coverage_path.glob("*.profraw"))
-        if len(raw_profiles) == 0:
-            logger.warning(f"Couldn't find any raw profiles for suite '{suite.name}' in mode '{suite.mode}' ({coverage_path}):\n\t"
-                "1. The binaries are killed instead of terminating which bypasses profile dump.\n\t"
-                "2. The suite tempres with the LLVM_PROFILE_FILE which causes the profile to be dumped\n\t"
-                "   to somewhere else.")
-            continue
-        mode_stats = stats.get_node(suite.mode)
-        if not mode_stats:
-            mode_stats = stats.create_node(tag = time.time(),
-                                           identifier = suite.mode,
-                                           parent = ROOT_NODE,
-                                           data = Stats(f"{suite.mode} mode processing stats", 0, 0))
-
-        raw_stats_node = stats.get_node(mode_stats.identifier + RAW_PROFILE_STATS)
-        if not raw_stats_node:
-            raw_stats_node = stats.create_node(tag = time.time(),
-                                               identifier = mode_stats.identifier + RAW_PROFILE_STATS,
-                                               parent = mode_stats,
-                                               data = Stats(RAW_PROFILE_STATS, 0, 0))
-        stat = stats.create_node(tag = time.time(),
-                                 identifier = raw_stats_node.identifier + suite.name,
-                                 parent = raw_stats_node,
-                                 data = Stats(suite.name, pathsize(coverage_path), 0))
-        raw_stats_node.data += stat.data
-        mode_stats.data.time += stat.data.time
-        mode_stats.data.size = max(mode_stats.data.size, raw_stats_node.data.size)
-
-
-        logger.info(f"{suite.name}: Converting raw profiles into indexed profiles - {stat.data}.")
-        start_time = time.time()
-        merge_result = await coverage_utils.merge_profiles(profiles = raw_profiles,
-                                            path_for_merged = coverage_path,
-                                            clear_on_success = (not options.coverage_keep_raw),
-                                            semaphore = semaphore,
-                                            logger = logger)
-        indexed_stats_node = stats.get_node(mode_stats.identifier +INDEXED_PROFILE_STATS)
-        if not indexed_stats_node:
-            indexed_stats_node = stats.create_node(tag = time.time(),
-                                                   identifier = mode_stats.identifier +INDEXED_PROFILE_STATS,
-                                                   parent = mode_stats,
-                                                   data = Stats(INDEXED_PROFILE_STATS, 0, 0))
-        stat = stats.create_node(tag = time.time(),
-                                 identifier = indexed_stats_node.identifier + suite.name,
-                                 parent = indexed_stats_node,
-                                 data = Stats(suite.name, pathsize(coverage_path), time.time() - start_time))
-        indexed_stats_node.data += stat.data
-        mode_stats.data.time += stat.data.time
-        mode_stats.data.size = max(mode_stats.data.size, indexed_stats_node.data.size)
-
-        logger.info(f"{suite.name}: Done converting raw profiles into indexed profiles - {humanfriendly.format_timespan(stat.data.time)}.")
-
-        # 2. Transform every indexed profile into an lcov trace file,
-        #    after this step, the dependency upon the build artifacts
-        #    ends and processing of the files can be done using the source
-        #    code only.
-
-        logger.info(f"{suite.name}: Converting indexed profiles into lcov trace files.")
-        start_time = time.time()
-        if len(merge_result.errors) > 0:
-            raise RuntimeError(merge_result.errors)
-        await coverage_utils.profdata_to_lcov(profiles = merge_result.generated_profiles,
-                                              excludes = sources_to_exclude,
-                                              known_file_ids = files_to_ids_map,
-                                              clear_on_success = (not options.coverage_keep_indexed),
-                                              semaphore = semaphore,
-                                              logger = logger
-                                              )
-        lcov_conversion_stats_node = stats.get_node(mode_stats.identifier + LCOV_CONVERSION_STATS)
-        if not lcov_conversion_stats_node:
-            lcov_conversion_stats_node = stats.create_node(tag = time.time(),
-                                                           identifier = mode_stats.identifier + LCOV_CONVERSION_STATS,
-                                                           parent = mode_stats,
-                                                           data = Stats(LCOV_CONVERSION_STATS, 0, 0))
-        stat = stats.create_node(tag = time.time(),
-                                 identifier = lcov_conversion_stats_node.identifier + suite.name,
-                                 parent = lcov_conversion_stats_node,
-                                 data = Stats(suite.name, pathsize(coverage_path), time.time() - start_time))
-        lcov_conversion_stats_node.data += stat.data
-        mode_stats.data.time += stat.data.time
-        mode_stats.data.size = max(mode_stats.data.size, lcov_conversion_stats_node.data.size)
-
-        logger.info(f"{suite.name}: Done converting indexed profiles into lcov trace files - {humanfriendly.format_timespan(stat.data.time)}.")
-
-        # 3. combine all tracefiles
-        logger.info(f"{suite.name} in mode {suite.mode}: Combinig lcov trace files.")
-        start_time = time.time()
-        trace_files = list(coverage_path.glob("**/*.info"))
-        target_trace_file = coverage_path / (suite.name + ".info")
-        if len(trace_files) == 0: # No coverage data, can skip
-            logger.warning(f"{suite.name} in mode  {suite.mode}: No coverage tracefiles found")
-        elif len(trace_files) == 1: # No need to merge, we can just rename the file
-            trace_files[0].rename(str(target_trace_file))
-        else:
-            await coverage_utils.lcov_combine_traces(lcovs = trace_files,
-                                                     output_lcov = target_trace_file,
-                                                     clear_on_success = (not options.coverage_keep_lcovs),
-                                                     files_per_chunk = 10,
-                                                     semaphore = semaphore,
-                                                     logger = logger)
-        lcov_merge_stats_node = stats.get_node(mode_stats.identifier + LCOV_SUITES_MEREGE_STATS)
-        if not lcov_merge_stats_node:
-            lcov_merge_stats_node = stats.create_node(tag = time.time(),
-                                                      identifier = mode_stats.identifier + LCOV_SUITES_MEREGE_STATS,
-                                                      parent = mode_stats,
-                                                      data = Stats(LCOV_SUITES_MEREGE_STATS, 0, 0))
-        stat = stats.create_node(tag = time.time(),
-                                 identifier = lcov_merge_stats_node.identifier + suite.name,
-                                 parent = lcov_merge_stats_node,
-                                 data = Stats(suite.name, pathsize(coverage_path), time.time() - start_time))
-        lcov_merge_stats_node.data += stat.data
-        mode_stats.data.time += stat.data.time
-        mode_stats.data.size = max(mode_stats.data.size, lcov_merge_stats_node.data.size)
-
-        suits_trace_files.setdefault(suite.mode, {})[suite.name] = target_trace_file
-        logger.info(f"{suite.name}: Done combinig lcov trace files - {humanfriendly.format_timespan(stat.data.time)}")
-
-    #4. combine the suite lcovs into per mode trace files
-    modes_trace_files  = {}
-    for mode, suite_traces in suits_trace_files.items():
-
-        target_trace_file = pathlib.Path(options.tmpdir) / mode / "coverage" / f"{mode}_coverage.info"
-        start_time = time.time()
-        logger.info(f"Consolidating trace files for mode {mode}.")
-        await coverage_utils.lcov_combine_traces(lcovs = suite_traces.values(),
-                                                 output_lcov = target_trace_file,
-                                                 clear_on_success = False,
-                                                 files_per_chunk = 10,
-                                                 semaphore = semaphore,
-                                                 logger = logger)
-        mode_stats = stats[mode]
-        stat = stats.create_node(tag = time.time(),
-                                 identifier = mode_stats.identifier + LCOV_MODES_MERGE_STATS,
-                                 parent = mode_stats,
-                                 data = Stats(LCOV_MODES_MERGE_STATS, None, time.time() - start_time))
-        mode_stats.data.time += stat.data.time
-        ROOT_NODE.data.size += mode_stats.data.size
-        modes_trace_files[mode] = target_trace_file
-        logger.info(f"Done consolidating trace files for mode {mode} - time: {humanfriendly.format_timespan(stat.data.time)}.")
-    #5. create one consolidated file with all trace information
-    logger.info(f"Consolidating all trace files for this run.")
-    start_time = time.time()
-    target_trace_file = pathlib.Path(options.tmpdir) / "test_coverage.info"
-    await coverage_utils.lcov_combine_traces(lcovs = modes_trace_files.values(),
-                                             output_lcov = target_trace_file,
-                                             clear_on_success = False,
-                                             files_per_chunk = 10,
-                                             semaphore = semaphore,
-                                             logger = logger)
-    stats.create_node(tag = time.time(),
-                      identifier = LCOV_MERGE_ALL_STATS,
-                      parent = ROOT_NODE,
-                      data = Stats(LCOV_MERGE_ALL_STATS, None, time.time() - start_time))
-    logger.info(f"Done consolidating all trace files for this run - time: {humanfriendly.format_timespan(time.time() - start_time)}.")
-
-    logger.info(f"Creating textual report.")
-    proc = await asyncio.create_subprocess_shell(f"lcov --summary --rc lcov_branch_coverage=1 {options.tmpdir}/test_coverage.info 2>/dev/null > {options.tmpdir}/test_coverage_report.txt")
-    await proc.wait()
-    with open(pathlib.Path(options.tmpdir) /"test_coverage_report.txt") as f:
-        summary = f.readlines()
-    proc = await asyncio.create_subprocess_shell(f"lcov --list --rc lcov_branch_coverage=1 {options.tmpdir}/test_coverage.info  2>/dev/null >> {options.tmpdir}/test_coverage_report.txt")
-    await proc.wait()
-    logger.info(f"Done creating textual report. ({options.tmpdir}/test_coverage_report.txt)")
-    total_processing_time = time.time() - total_processing_time
-    ROOT_NODE.data.time = total_processing_time
-
-    stats_str ="\n" + stats.show(stdout=False,
-                                 data_property="asstring")
-    summary = ["\n" + l for l in summary]
-    logger.info(stats_str)
-    logger.info("".join(summary))
+    return exit_code
 
 
 if __name__ == "__main__":
     colorama.init()
-    # gh-16583: ignore the inherited client host's ScyllaDB environment,
-    # since it may break the tests
-    if "SCYLLA_CONF" in os.environ:
-        del os.environ["SCYLLA_CONF"]
-    if "SCYLLA_HOME" in os.environ:
-        del os.environ["SCYLLA_HOME"]
 
     if sys.version_info < (3, 11):
         print("Python 3.11 or newer is required to run this program")
         sys.exit(-1)
-    sys.exit(asyncio.run(main()))
+    sys.exit(main())

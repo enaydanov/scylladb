@@ -304,22 +304,62 @@ managed Scylla instance), while test.py and bare pytest need `"module"` scope
 - `testpy_test_fixture_scope` function itself — cannot be replaced with a
   literal because runpy needs `"session"` and pytest needs `"module"`.
 
-### Phase 3: Simplify test.py to Thin Wrapper
+### Phase 3: Simplify test.py to Thin Wrapper — ✅ COMPLETE
 
-Simplify test.py by moving functionality to runner.py and conftest.py:
+Phase 3 has been completed.  test.py was reduced from 755 lines to 334 lines
+by removing all async scaffolding, dead functions, dead imports, and dead CLI
+options.  The resource watcher was reimplemented as a thread-based monitor in
+runner.py, and SCYLLA_CONF/SCYLLA_HOME cleanup was moved to conftest.py.
 
-1. **Move `ThreadsCalculator`** to a conftest fixture or a small wrapper
-   script.
+**What was done:**
 
-2. **Move `SCYLLA_CONF`/`SCYLLA_HOME` cleanup** to root `conftest.py`.
+1. ✅ **Simplified test.py to a synchronous thin wrapper**: `main()` is now a
+   plain `def` (not `async def`) that calls `parse_cmd_line()`, `run_pytest()`,
+   and optionally `coverage.generate_coverage_report()`.  The `asyncio.run()`
+   call was removed from `__main__`.
 
-3. **Move resource watcher** to a pytest plugin (session-scoped, thread-based).
+2. ✅ **Removed functions**: `setup_signal_handlers()`, `run_all_tests()`,
+   `print_summary()`, `open_log()`, `process_coverage()` — total ~370 lines
+   removed.
 
-4. **Remove `TabularConsoleOutput`**, `setup_signal_handlers()`,
-   `run_all_tests()` async scaffolding, and `process_coverage()`.
+3. ✅ **Simplified `run_pytest()`**: Now returns `int` (the `pytest.main()`
+   exit code) instead of `tuple[int, list[SimpleNamespace]]`.  JUnit XML
+   parsing was removed — pytest's native summary and exit code are sufficient.
 
-5. **Simplify `main()`** to a synchronous function: parse args, invoke pytest,
-   return exit code.
+4. ✅ **Removed dead CLI options**: `--no-parallel-cases`, `--log-level`,
+   `--coverage-keep-raw`, `--coverage-keep-indexed`, `--coverage-keep-lcovs`,
+   `--artifacts_dir_url`, `--manual-execution`, `--skip-internet-dependent-tests`.
+
+5. ✅ **Removed dead imports**: `asyncio`, `itertools`, `resource`, `signal`,
+   `time`, `xml.etree.ElementTree`, `humanfriendly`, `treelib`,
+   `coverage_utils`, `LogPrefixAdapter`, `init_testsuite_globals`,
+   `prepare_environment`, `TestSuite`, `run_resource_watcher`,
+   `TESTPY_PREPARED_ENVIRONMENT`, `SimpleNamespace`.
+
+6. ✅ **Moved `SCYLLA_CONF`/`SCYLLA_HOME` cleanup** to root `conftest.py`
+   `pytest_configure` hook.  This means the cleanup runs for all execution
+   modes (test.py, bare pytest, and run.py).
+
+7. ✅ **Moved resource watcher** to runner.py as a thread-based monitor.
+   `_resource_monitor_loop()` runs in a daemon thread, polling `psutil` every
+   2 seconds and writing `SystemResourceMetric` records to SQLite.  Started in
+   `pytest_sessionstart` when `--gather-metrics` is true; stopped in
+   `pytest_sessionfinish`.
+
+8. ✅ **`TESTPY_PREPARED_ENVIRONMENT` no longer set** by test.py — runner.py
+   always handles environment setup.  test.py no longer calls
+   `prepare_environment()` or `init_testsuite_globals()`.
+
+**What was intentionally kept:**
+
+- `ThreadsCalculator` — still used by `parse_cmd_line()` to compute `--jobs`.
+- `PYTEST_RUNNER_DIRECTORIES` — used by `run_pytest()` for file selection.
+- `parse_cmd_line()` — simplified but still needed for CI compatibility.
+- `run_pytest()` — simplified to just assemble args and call `pytest.main()`.
+- Coverage report generation — `coverage.generate_coverage_report()` for the
+  `"coverage"` build mode.
+- CI targets unchanged — `configure.py` and `CMakeLists.txt` still invoke
+  `./test.py` with `--mode`, `--repeat`, `--timeout`.
 
 ### Phase 4: Clean Up Suite Framework
 
@@ -410,7 +450,7 @@ communication):
 |-------|--------|------|
 | Phase 1: Dead code removal | ✅ Done | Very low (no behavioral change) |
 | Phase 2: Runner self-sufficiency | ✅ Done | Low (removed guards, changed scope condition) |
-| Phase 3: Simplify test.py | 2-3 days | Medium (CI integration) |
+| Phase 3: Simplify test.py | ✅ Done | Low (thin wrapper preserved for CI) |
 | Phase 4: Suite framework cleanup | 1-2 days | Low |
 | Phase 5: Documentation | 1 day | None |
 | **Total** | **7-11 days** | |

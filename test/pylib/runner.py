@@ -13,6 +13,7 @@ import pathlib
 import platform
 import random
 import sys
+import threading
 from argparse import BooleanOptionalAction
 from collections import defaultdict
 from itertools import chain, count, product
@@ -39,6 +40,13 @@ from test.pylib.suite.base import (
 )
 from test.pylib.util import get_modes_to_run, scale_timeout_by_mode
 
+from datetime import datetime
+
+import psutil
+
+from test.pylib.db.model import SystemResourceMetric
+from test.pylib.db.writer import DEFAULT_DB_NAME, SYSTEM_RESOURCE_METRICS_TABLE, SQLiteWriter
+
 if TYPE_CHECKING:
     from collections.abc import Generator
 
@@ -62,6 +70,52 @@ logger = logging.getLogger(__name__)
 
 # Store pytest config globally so we can access it in hooks that only receive report
 _pytest_config: pytest.Config | None = None
+
+# Resource watcher state (thread-based replacement for test.py's asyncio watcher)
+_resource_watcher_stop: threading.Event | None = None
+_resource_watcher_thread: threading.Thread | None = None
+
+
+def _resource_monitor_loop(stop_event: threading.Event, tmpdir: pathlib.Path) -> None:
+    """Poll system CPU and memory every 2 seconds, writing to SQLite.
+
+    Runs in a daemon thread started by _start_resource_watcher().
+    """
+    from test import HOST_ID as _host_id
+
+    sqlite_writer = SQLiteWriter(tmpdir / DEFAULT_DB_NAME)
+    while not stop_event.wait(timeout=2.0):
+        record = SystemResourceMetric(
+            host_id=_host_id,
+            cpu=psutil.cpu_percent(interval=0.1),
+            memory=psutil.virtual_memory().percent,
+            timestamp=datetime.now(),
+        )
+        sqlite_writer.write_row(record, SYSTEM_RESOURCE_METRICS_TABLE)
+
+
+def _start_resource_watcher(tmpdir: pathlib.Path) -> None:
+    """Start the background resource monitoring thread."""
+    global _resource_watcher_stop, _resource_watcher_thread
+    _resource_watcher_stop = threading.Event()
+    _resource_watcher_thread = threading.Thread(
+        target=_resource_monitor_loop,
+        args=(_resource_watcher_stop, tmpdir),
+        daemon=True,
+        name="resource-watcher",
+    )
+    _resource_watcher_thread.start()
+
+
+def _stop_resource_watcher() -> None:
+    """Stop the background resource monitoring thread."""
+    global _resource_watcher_stop, _resource_watcher_thread
+    if _resource_watcher_stop is not None:
+        _resource_watcher_stop.set()
+    if _resource_watcher_thread is not None:
+        _resource_watcher_thread.join(timeout=5.0)
+    _resource_watcher_stop = None
+    _resource_watcher_thread = None
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -207,6 +261,9 @@ def pytest_sessionstart(session: pytest.Session) -> None:
             toxiproxy_byte_limit=session.config.getoption("--byte-limit"),
         )
 
+        if session.config.getoption("--gather-metrics"):
+            _start_resource_watcher(temp_dir)
+
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_logreport(report):
@@ -265,6 +322,7 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
 
     if is_xdist_worker or TESTPY_PREPARED_ENVIRONMENT in os.environ:
         return
+    _stop_resource_watcher()
     # we only clean up when running with pure pytest
     if getattr(TestSuite, "artifacts", None) is not None:
         asyncio.run(TestSuite.artifacts.cleanup_before_exit())
