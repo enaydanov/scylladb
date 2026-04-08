@@ -48,11 +48,16 @@ The file is approximately 527 lines.
 ### 2.1 Suite Framework Imports
 
 From `test.pylib.suite`:
-- `PYTEST_TESTS_LOGS_FOLDER` -- subdirectory name for failure logs
-- `TestSuite` -- class-level `artifacts`, `hosts`, `init_testsuite_globals()`
+- `TestSuite` -- class-level `artifacts`, `hosts`
 - `Test` -- test instance class
-- `prepare_environment` -- initializes directories and services
+
+Defined directly in `runner.py` (moved from `suite.py`):
+- `PYTEST_TESTS_LOGS_FOLDER` -- subdirectory name for failure logs
 - `init_testsuite_globals` -- one-time global setup
+- `prepare_dir` -- single directory preparation/cleanup
+- `prepare_dirs` -- creates the full directory tree for a test run
+- `start_3rd_party_services` -- starts LDAP, MinIO, S3 mock, S3 proxy
+- `prepare_environment` -- orchestrates `prepare_dirs` + `start_3rd_party_services`
 
 From `test/__init__.py`:
 - `ALL_MODES`, `DEBUG_MODES` -- mode definitions

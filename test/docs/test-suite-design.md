@@ -236,38 +236,16 @@ for a pool-based test:
 
 ## 6. Module-Level Infrastructure
 
-All module-level functions and utilities are in `suite.py`.
+Module-level utilities in `suite.py` include `create_formatter()`, `palette`, and
+`PYTEST_TESTS_LOGS_FOLDER`.
 
-### 6.1 Global Initialization (`init_testsuite_globals`)
-
-Creates the global `ArtifactRegistry` and `HostRegistry` instances and assigns
-them to `TestSuite.artifacts` and `TestSuite.hosts` respectively. Must be called
-once before any suite is used. Called from both `test.py` and `runner.py` during
-session setup.
-
-### 6.2 Environment Preparation
-
-**`prepare_environment(tempdir_base, modes, gather_metrics, save_log_on_success, toxiproxy_byte_limit)`**:
-Decorated with `@universalasync.async_to_sync_wraps` (can be called from sync
-code). Calls `prepare_dirs()` then `start_3rd_party_services()`.
-
-**`prepare_dirs(tempdir_base, modes, gather_metrics, save_log_on_success)`**:
-- Sets up cgroups via `setup_cgroup()`.
-- Prepares directories for logs, reports, LDAP instances.
-- For each mode: creates directories for mode logs, `.reject` files, XML output,
-  failed test artifacts, allure reports, and (if not using pytest runner) pytest
-  output.
-- If `save_log_on_success` is false, cleans old artifacts.
-
-**`start_3rd_party_services(tempdir_base, toxiproxy_byte_limit)`** (async):
-Starts four external services required by integration tests:
-1. **LDAP server**: via `start_ldap()`. Registered as an exit artifact.
-2. **MinIO server**: object storage. Registered as an exit artifact.
-3. **Mock S3 server**: on port 2012. Registered as an exit artifact.
-4. **S3 Proxy server**: on port 9002, proxying to MinIO with configurable retries
-   and a random seed. Registered as an exit artifact.
-
-All services lease their own IP addresses from the host registry.
+The following functions have been moved to `runner.py` (see
+[runner-design.md](runner-design.md)):
+- `init_testsuite_globals()` -- creates `ArtifactRegistry` / `HostRegistry`
+- `prepare_dir()` -- single directory preparation/cleanup
+- `prepare_dirs()` -- creates the full directory tree for a test run
+- `start_3rd_party_services()` -- starts LDAP, MinIO, S3 mock, S3 proxy
+- `prepare_environment()` -- orchestrates dirs + services
 
 ### 6.3 Test Creation (in `testpy_test` fixture)
 

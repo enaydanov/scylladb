@@ -12,8 +12,10 @@ import os
 import pathlib
 import platform
 import random
+import shutil
 import sys
 import threading
+import time
 from argparse import BooleanOptionalAction
 from collections import defaultdict
 from itertools import chain, count, product
@@ -24,6 +26,7 @@ from typing import TYPE_CHECKING, Callable
 
 import pytest
 import xdist
+import universalasync
 import yaml
 from _pytest.junitxml import xml_key
 
@@ -32,14 +35,17 @@ from test import ALL_MODES, DEBUG_MODES, TEST_RUNNER, TOP_SRC_DIR, TESTPY_PREPAR
 from test.pylib.skip_reason_plugin import skip_marker
 from test.pylib.scylla_cluster import get_scylla_executable, merge_cmdline_options
 from test.pylib.suite import (
-    PYTEST_TESTS_LOGS_FOLDER,
     Test,
     TestSuite,
-    prepare_environment,
-    init_testsuite_globals,
 )
-
-from test.pylib.util import get_modes_to_run, scale_timeout_by_mode
+from test.pylib.artifact_registry import ArtifactRegistry
+from test.pylib.host_registry import HostRegistry
+from test.pylib.ldap_server import start_ldap
+from test.pylib.minio_server import MinioServer
+from test.pylib.resource_gather import setup_cgroup
+from test.pylib.s3_proxy import S3ProxyServer
+from test.pylib.s3_server_mock import MockS3Server
+from test.pylib.util import LogPrefixAdapter, get_modes_to_run, scale_timeout_by_mode
 
 from datetime import datetime
 
@@ -59,6 +65,7 @@ if TYPE_CHECKING:
 
 TEST_CONFIG_FILENAME = "test_config.yaml"
 PYTEST_LOG_FOLDER = "pytest_log"
+PYTEST_TESTS_LOGS_FOLDER = "pytest_tests_logs"
 
 REPEATING_FILES = pytest.StashKey[set[pathlib.Path]]()
 BUILD_MODE = pytest.StashKey[str]()
@@ -225,6 +232,93 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
     items.sort(key=sort_key)
 
+
+
+def init_testsuite_globals() -> None:
+    """Create global objects required for a test run."""
+
+    TestSuite.artifacts = ArtifactRegistry()
+    TestSuite.hosts = HostRegistry()
+
+
+def prepare_dir(dirname: pathlib.Path, pattern: str, save_log_on_success: bool) -> None:
+    # Ensure the dir exists.
+    dirname.mkdir(parents=True, exist_ok=True)
+
+    if not save_log_on_success:
+        # Remove old artifacts.
+        if pattern == '*':
+            shutil.rmtree(dirname, ignore_errors=True)
+        else:
+            for p in dirname.glob(pattern):
+                p.unlink()
+
+def prepare_dirs(tempdir_base: pathlib.Path, modes: list[str], gather_metrics: bool, save_log_on_success: bool = False) -> None:
+    setup_cgroup(gather_metrics)
+    prepare_dir(tempdir_base, "*.log", save_log_on_success)
+    prepare_dir(tempdir_base/ PYTEST_TESTS_LOGS_FOLDER, "*.log", save_log_on_success)
+    for directory in ['report', 'ldap_instances']:
+        full_path_directory = tempdir_base / directory
+        prepare_dir(full_path_directory, '*', save_log_on_success)
+    for mode in modes:
+        prepare_dir(tempdir_base / mode, "*.log", save_log_on_success)
+        prepare_dir(tempdir_base / mode, "*.reject", save_log_on_success)
+        prepare_dir(tempdir_base / mode / "xml", "*.xml", save_log_on_success)
+        prepare_dir(tempdir_base / mode / "failed_test", "*", save_log_on_success)
+        prepare_dir(tempdir_base / mode / "allure", "*.xml", save_log_on_success)
+        if TEST_RUNNER != "pytest":
+            prepare_dir(tempdir_base / mode / "pytest", "*", save_log_on_success)
+
+
+@universalasync.async_to_sync_wraps
+async def start_3rd_party_services(tempdir_base: pathlib.Path, toxiproxy_byte_limit: int):
+    hosts = HostRegistry()
+
+    finalize = start_ldap(
+        host=await hosts.lease_host(),
+        port=5000,
+        instance_root=tempdir_base / 'ldap_instances',
+        toxiproxy_byte_limit=toxiproxy_byte_limit)
+    async def make_async_finalize():
+        finalize()
+
+    TestSuite.artifacts.add_exit_artifact(None, make_async_finalize)
+    ms = MinioServer(
+        tempdir_base=str(tempdir_base),
+        address=await hosts.lease_host(),
+        logger=LogPrefixAdapter(logger=logging.getLogger("minio"), extra={"prefix": "minio"}),
+    )
+    await ms.start()
+    TestSuite.artifacts.add_exit_artifact(None, ms.stop)
+
+    TestSuite.artifacts.add_exit_artifact(None, hosts.cleanup)
+
+    mock_s3_server = MockS3Server(
+        host=await hosts.lease_host(),
+        port=2012,
+        logger=LogPrefixAdapter(logger=logging.getLogger("s3_mock"), extra={"prefix": "s3_mock"}),
+    )
+    await mock_s3_server.start()
+    TestSuite.artifacts.add_exit_artifact(None, mock_s3_server.stop)
+
+    minio_uri = f"http://{os.environ[ms.ENV_ADDRESS]}:{os.environ[ms.ENV_PORT]}"
+    proxy_s3_server = S3ProxyServer(
+        host=await hosts.lease_host(),
+        port=9002,
+        minio_uri=minio_uri,
+        max_retries=3,
+        seed=int(time.time()),
+        logger=LogPrefixAdapter(logger=logging.getLogger("s3_proxy"), extra={"prefix": "s3_proxy"}),
+    )
+    await proxy_s3_server.start()
+    TestSuite.artifacts.add_exit_artifact(None, proxy_s3_server.stop)
+
+
+@universalasync.async_to_sync_wraps
+async def prepare_environment(tempdir_base: pathlib.Path, modes: list[str], gather_metrics: bool, save_log_on_success: bool,
+                        toxiproxy_byte_limit: int) -> None:
+    prepare_dirs(tempdir_base, modes, gather_metrics, save_log_on_success=save_log_on_success)
+    await start_3rd_party_services(tempdir_base=tempdir_base, toxiproxy_byte_limit=toxiproxy_byte_limit)
 
 def pytest_sessionstart(session: pytest.Session) -> None:
     # Skip initialization when only collecting tests, or when running under run.py scripts.

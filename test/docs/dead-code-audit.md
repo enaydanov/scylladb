@@ -108,13 +108,13 @@ Each symbol was classified as:
 
 | Function | Category | Status | Justification |
 |----------|----------|--------|---------------|
-| `init_testsuite_globals()` | SHARED | 🔄 REMAINING | Called from `runner.py` and `test.py` |
+| `init_testsuite_globals()` | SHARED | ✅ MOVED | Moved to `runner.py` |
 | `read_log()` | INTERNAL-LEGACY | ✅ REMOVED | Removed in Phase 4 — all callers (`print_summary()` methods) also removed |
 | `run_test()` | LEGACY-ONLY | ✅ REMOVED | Only called from `Test.run()` implementations; 112 lines, the largest single block of dead code removed |
-| `prepare_dir()` | INTERNAL-SHARED | 🔄 REMAINING | Called by `prepare_dirs()` |
-| `prepare_environment()` | SHARED | 🔄 REMAINING | Called from `runner.py` and `test.py` |
-| `prepare_dirs()` | INTERNAL-SHARED | 🔄 REMAINING | Called by `prepare_environment()` |
-| `start_3rd_party_services()` | INTERNAL-SHARED | 🔄 REMAINING | Called by `prepare_environment()` |
+| `prepare_dir()` | INTERNAL-SHARED | ✅ MOVED | Moved to `runner.py` |
+| `prepare_environment()` | SHARED | ✅ MOVED | Moved to `runner.py` |
+| `prepare_dirs()` | INTERNAL-SHARED | ✅ MOVED | Moved to `runner.py` |
+| `start_3rd_party_services()` | INTERNAL-SHARED | ✅ MOVED | Moved to `runner.py` |
 | `find_suite_config()` | INTERNAL-SHARED | ✅ REMOVED | Eliminated; `get_testpy_test()` now receives the suite path from the pytest stash |
 | `get_testpy_test()` | SHARED | ✅ REMOVED | Inlined into `testpy_test` fixture in `runner.py`; conftest callers now use the fixture directly |
 

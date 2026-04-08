@@ -22,8 +22,8 @@ from test.pylib.suite import (
     Test,
     create_formatter,
     palette,
-    prepare_dir,
 )
+from test.pylib.runner import prepare_dir
 
 
 # ===================================================================
