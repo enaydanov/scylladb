@@ -276,30 +276,19 @@ Starts four external services required by integration tests:
 
 All services lease their own IP addresses from the host registry.
 
-### 6.3 Suite Config Lookup (`find_suite_config`)
+### 6.3 Test Creation (in `testpy_test` fixture)
 
-**Signature:** `find_suite_config(path, config_filename) -> pathlib.Path`
+Test creation logic lives directly in the `testpy_test` fixture in `runner.py`:
 
-Walks up the directory tree from `path` (relative to `TEST_DIR`) looking for a
-file named `config_filename`. Returns the first match. Raises `FileNotFoundError`
-if none is found up to the test root.
+1. Reads `suite_path` from the pytest stash (`TEST_SUITE` key).
+2. Constructs the config file path from `suite_path / TEST_CONFIG_FILENAME`.
+3. Creates/retrieves the suite via `TestSuite.opt_create()`.
+4. If `options.exe_path` or `options.exe_url` is set, overrides `suite.scylla_exe`.
+5. Creates a `Test` instance directly with a monotonic ID from `suite.next_id()`.
+6. Returns the new `Test` instance.
 
-### 6.4 Single-Test Creation Bridge (`get_testpy_test`)
-
-**Signature:** `async get_testpy_test(path, options, mode) -> Test`
-
-Creates a single `Test` instance for a given file path:
-
-1. Finds the suite config using `TEST_CONFIG_FILENAME` (`"test_config.yaml"`).
-2. Creates/retrieves the suite via `TestSuite.opt_create()`.
-3. If `options.exe_path` or `options.exe_url` is set, overrides `suite.scylla_exe`.
-4. Creates a `Test` instance directly with a monotonic ID from `suite.next_id()`.
-5. Returns the new `Test` instance.
-
-This function is the primary bridge between the pytest fixture system and the
-suite framework.
-
-Uses `TEST_CONFIG_FILENAME` directly (no `suite.yaml` fallback).
+Conftest fixtures that need `Test` attributes (e.g., `suite.log_dir`, `uname`)
+take `testpy_test` as a fixture parameter rather than creating their own `Test`.
 
 ### 6.5 Terminal Color Palette (`palette`)
 
@@ -344,15 +333,17 @@ The `test.py` script at the repository root is the CI entry point for running te
 
 The pytest-based runner integrates with the suite framework via:
 
-**`testpy_test` fixture** (module-scoped): calls `get_testpy_test()` to create
-a `Test` instance for the current test file. This is how the conftest files in
-each test directory access the suite's cluster pool and configuration.
+**`testpy_test` fixture** (module-scoped): creates a `Test` instance for the
+current test file by reading the suite path from the pytest stash, creating or
+retrieving the `TestSuite` via `opt_create()`, and generating a unique test ID.
+This is how the conftest files in each test directory access the suite's cluster
+pool and configuration — they take `testpy_test` as a fixture parameter.
 
 **`TestSuiteConfig`**: a lightweight parallel implementation used during pytest
 collection (not test execution). It reads `test_config.yaml` to filter disabled
 tests and apply mode restrictions without creating full `TestSuite` instances.
-It walks up the directory tree to find the config file, similar to
-`find_suite_config()`.
+It walks up the pytest node tree to find the config file and stores
+the result in the stash, which the `testpy_test` fixture then reads.
 
 **Session setup**: calls `init_testsuite_globals()` and `prepare_environment()`
 during pytest session start (gated by `TESTPY_PREPARED_ENVIRONMENT` env var
@@ -374,8 +365,8 @@ infrastructure:
 | Directory | Key Integration |
 |-----------|-----------------|
 | `test/cqlpy/` | Uses `testpy_test` for cluster access via `run_ctx()` |
-| `test/cluster/` | Uses `get_testpy_test()` to create a `ManagerClient` from the suite's cluster pool |
-| `test/cql/` | Uses `get_testpy_test()` to get `output_path` from the suite's log dir |
+| `test/cluster/` | Uses `testpy_test` fixture for log paths and `ManagerClient` from the suite's cluster pool |
+| `test/cql/` | Uses `testpy_test` fixture to get `output_path` from the suite's log dir |
 | `test/alternator/` | Uses `add_host_option` |
 | `test/rest_api/` | Uses `add_host_option` and `add_cql_connection_options` |
 | `test/broadcast_tables/` | Uses `add_host_option` and `add_cql_connection_options` |
@@ -422,11 +413,9 @@ test_config.yaml
 ```
 testpy_test fixture
        |
-       | get_testpy_test(path, options, mode)
-       |   |
-       |   | find_suite_config(path, TEST_CONFIG_FILENAME)
-       |   | TestSuite.opt_create()  --> creates/caches TestSuite
-       |   | suite.add_test()        --> creates Test instance
+       | suite_path = request.node.stash[TEST_SUITE].path
+       | TestSuite.opt_create()  --> creates/caches TestSuite
+       | Test(test_no, shortname, suite)
        |   v
        | Test instance (with suite back-reference)
        |

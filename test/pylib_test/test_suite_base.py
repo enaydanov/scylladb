@@ -14,18 +14,15 @@ ensuring that Phase 1 dead-code removal doesn't break shared behaviour.
 import argparse
 import os
 import pathlib
-import re
 from unittest.mock import patch
 
 import pytest
 import yaml
 
 from test.pylib.suite import (
-    TEST_CONFIG_FILENAME,
     TestSuite,
     Test,
     create_formatter,
-    find_suite_config,
     palette,
     prepare_dir,
 )
@@ -272,59 +269,6 @@ class TestOptCreate:
         with pytest.raises(RuntimeError, match="Failed to load"):
             TestSuite.opt_create(config, mock_options, "dev")
 
-
-# ===================================================================
-# find_suite_config — parent-directory walk
-# ===================================================================
-
-
-class TestFindSuiteConfig:
-    """Tests for find_suite_config() — directly affected by Phase 1 item #2."""
-
-    def test_config_in_same_dir(self, tmp_path):
-        """Config file in the same directory as the test path."""
-        with patch("test.pylib.suite.TEST_DIR", tmp_path):
-            suite_dir = tmp_path / "my_suite"
-            suite_dir.mkdir()
-            config = suite_dir / TEST_CONFIG_FILENAME
-            config.write_text(yaml.dump({}))
-
-            result = find_suite_config(suite_dir, TEST_CONFIG_FILENAME)
-            assert result == config
-
-    def test_config_in_parent_dir(self, tmp_path):
-        """Config file in a parent directory."""
-        with patch("test.pylib.suite.TEST_DIR", tmp_path):
-            suite_dir = tmp_path / "parent"
-            suite_dir.mkdir()
-            child = suite_dir / "child"
-            child.mkdir()
-            config = suite_dir / TEST_CONFIG_FILENAME
-            config.write_text(yaml.dump({}))
-
-            result = find_suite_config(child, TEST_CONFIG_FILENAME)
-            assert result == config
-
-    def test_config_not_found_raises(self, tmp_path):
-        """Raises FileNotFoundError when no config is found."""
-        with patch("test.pylib.suite.TEST_DIR", tmp_path):
-            suite_dir = tmp_path / "empty"
-            suite_dir.mkdir()
-            with pytest.raises(FileNotFoundError, match="Unable to find"):
-                find_suite_config(suite_dir, TEST_CONFIG_FILENAME)
-
-    def test_walks_for_file_path(self, tmp_path):
-        """When path is a file (not a directory), still walks parents."""
-        with patch("test.pylib.suite.TEST_DIR", tmp_path):
-            suite_dir = tmp_path / "suite_f"
-            suite_dir.mkdir()
-            config = suite_dir / TEST_CONFIG_FILENAME
-            config.write_text(yaml.dump({}))
-            test_file = suite_dir / "test_foo.py"
-            test_file.write_text("# test")
-
-            result = find_suite_config(test_file, TEST_CONFIG_FILENAME)
-            assert result == config
 
 
 # ===================================================================

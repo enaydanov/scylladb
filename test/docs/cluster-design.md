@@ -43,7 +43,7 @@ The file is 396 lines. Key responsibilities:
 
 From suite framework:
 - `testpy_test_fixture_scope` from `test.pylib.runner` -- dynamic fixture scoping
-- `get_testpy_test` from `test.pylib.suite` -- creates Test instances
+- `Test` from `test.pylib.suite` (TYPE_CHECKING) -- type annotation
 - `add_cql_connection_options` from `test.pylib.runner` -- CLI options
 
 From test infrastructure:
@@ -187,7 +187,7 @@ The main test fixture for cluster topology tests. Each test gets a fresh
 manager client instance:
 
 **Setup:**
-1. Creates a `Test` instance via `get_testpy_test()` for log path resolution.
+1. Uses the `testpy_test` fixture (from `runner.py`) for log path resolution.
 2. Computes test-specific log paths:
    - `test_log = log_dir / "<suite_name>.<test_case_name>.log"`
    - `test_py_log_test = log_dir / "<test_log_stem>_cluster.log"`
@@ -272,7 +272,7 @@ Uses `async with` for proper cleanup.
 | Symbol | Source | Usage |
 |--------|--------|-------|
 | `testpy_test_fixture_scope` | `runner.py` | Scope for `manager_api_sock_path`, `manager_internal` |
-| `get_testpy_test` | `suite.py` | `manager` fixture -- creates Test for log paths |
+| `testpy_test` (fixture) | `runner.py` | `manager` fixture -- provides Test for log paths |
 | `add_cql_connection_options` | `runner.py` | `pytest_addoption` |
 | `Test` (TYPE_CHECKING) | `suite.py` | Type annotation for `testpy_test` |
 | `path_to` | `test/__init__.py` | `decode_backtrace` -- resolve scylla executable |
@@ -282,7 +282,7 @@ Uses `async with` for proper cleanup.
 
 ```
 testpy_test fixture (from runner.py)
-    |-- get_testpy_test() --> TestSuite instance
+    |-- TestSuite.opt_create() --> TestSuite instance
     v
 manager_api_sock_path fixture
     |-- testpy_test.suite.clusters (cluster pool from TestSuite)
@@ -294,7 +294,7 @@ manager_internal fixture
     |-- creates ManagerClient factory with socket path, port, SSL, auth
     v
 manager fixture (per-test)
-    |-- get_testpy_test() for log path computation
+    |-- uses testpy_test for log path computation
     |-- manager_client = manager_internal()
     |-- await manager_client.before_test(name, log_path)
     |-- yield manager_client
@@ -306,10 +306,10 @@ test functions
 
 ### Key Design Decisions
 
-1. **Two levels of testpy_test access**: the `manager_api_sock_path` fixture
-   receives `testpy_test` from the runner's fixture for cluster pool access. The
-   `manager` fixture independently calls `get_testpy_test()` for log path
-   computation, creating a second Test instance.
+1. **Shared testpy_test instance**: both `manager_api_sock_path` and `manager`
+   fixtures use the same `testpy_test` instance from the runner's fixture.
+   `manager_api_sock_path` uses it for cluster pool access; `manager` uses it
+   for log path computation.
 
 2. **Thread pool for manager**: `ScyllaClusterManager` runs its own asyncio event
    loop in a separate thread via `ThreadPoolExecutor`. This isolates the manager's

@@ -24,9 +24,9 @@ migrated to `test_config.yaml`.  The legacy discovery function `find_tests()`
 
 **`test.py` is already just a wrapper around `run_pytest()` in practice.**
 
-> Note: `get_testpy_test()` in `suite.py` now uses `TEST_CONFIG_FILENAME`
-> directly (the `suite.yaml` fallback was removed in Phase 1).  This path is
-> used by conftest fixtures via the pytest runner, not by the legacy pipeline.
+> Note: `get_testpy_test()` has been inlined into the `testpy_test` fixture
+> in `runner.py`.  Conftest fixtures that previously called it directly now use
+> the `testpy_test` fixture parameter instead.
 
 ---
 
@@ -60,7 +60,7 @@ Each symbol was classified as:
 | Symbol | Category | Status | Justification |
 |--------|----------|--------|---------------|
 | `SUITE_CONFIG_FILENAME` | SHARED | ✅ REMOVED | Was imported by `runner.py` and `test.py`; since no `suite.yaml` exists, every reference was a dead lookup |
-| `TEST_CONFIG_FILENAME` | SHARED | 🔄 REMAINING | Used in `find_suite_config()` which is called by `get_testpy_test()`, used by both paths |
+| `TEST_CONFIG_FILENAME` | SHARED | 🔄 REMAINING | Used in `get_testpy_test()` and `runner.py`'s `TestSuiteConfig.from_pytest_node()` |
 | `PYTEST_TESTS_LOGS_FOLDER` | SHARED | 🔄 REMAINING | Imported by `runner.py` and used in `prepare_dirs()` |
 | `output_is_a_tty` | SHARED | 🔄 REMAINING | Used by `create_formatter()` / `palette`, which are imported by `test/pylib/cql_repl.py` (pytest path) and `test.py` |
 | `create_formatter()` | SHARED | 🔄 REMAINING | Used by `palette` class, imported by `test/pylib/cql_repl.py` (pytest) and `test.py` |
@@ -83,7 +83,7 @@ Each symbol was classified as:
 | `opt_create()` | SHARED | 🔄 REMAINING | Called from `runner.py` via `get_testpy_test()` and from `test.py` |
 | `all_tests()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — callers removed in Phase 3 |
 | `pattern` (abstract property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — only consumed by deleted `build_test_list()` |
-| `add_test()` (abstract) | SHARED | 🔄 REMAINING | Called from `get_testpy_test()` (both) and previously from `add_test_list()` (legacy, now removed) |
+| `add_test()` (abstract) | SHARED | ✅ REMOVED | Was called from `get_testpy_test()` which has been inlined; `Test` is now created directly in `testpy_test` fixture |
 | `run()` | LEGACY-ONLY | ✅ REMOVED | Only called from `test.py` |
 | `junit_tests()` | ALREADY-DEAD | ✅ REMOVED | No callers found anywhere |
 | `boost_tests()` | ALREADY-DEAD | ✅ REMOVED | No callers found anywhere |
@@ -115,8 +115,8 @@ Each symbol was classified as:
 | `prepare_environment()` | SHARED | 🔄 REMAINING | Called from `runner.py` and `test.py` |
 | `prepare_dirs()` | INTERNAL-SHARED | 🔄 REMAINING | Called by `prepare_environment()` |
 | `start_3rd_party_services()` | INTERNAL-SHARED | 🔄 REMAINING | Called by `prepare_environment()` |
-| `find_suite_config()` | INTERNAL-SHARED | 🔄 REMAINING | Called by `get_testpy_test()` |
-| `get_testpy_test()` | SHARED | 🔄 REMAINING | Called from `runner.py`, conftest fixtures, and indirectly from legacy discovery. Now uses only `TEST_CONFIG_FILENAME` (suite.yaml fallback removed) |
+| `find_suite_config()` | INTERNAL-SHARED | ✅ REMOVED | Eliminated; `get_testpy_test()` now receives the suite path from the pytest stash |
+| `get_testpy_test()` | SHARED | ✅ REMOVED | Inlined into `testpy_test` fixture in `runner.py`; conftest callers now use the fixture directly |
 
 ---
 
@@ -129,7 +129,7 @@ Each symbol was classified as:
 | `__init__()` | SHARED | 🔄 REMAINING | Called via `opt_create()` |
 | `get_cluster_factory()` | SHARED | 🔄 REMAINING | Called in `__init__()`; cluster pool used by conftest fixtures. Now in `suite.py` |
 | `pattern` (property) | SHARED | 🔄 REMAINING | Required abstract property |
-| `add_test()` | SHARED | 🔄 REMAINING | Called from `get_testpy_test()` |
+| `add_test()` | SHARED | ✅ REMOVED | Was called from `get_testpy_test()` which has been inlined |
 | `run()` | LEGACY-ONLY | ✅ REMOVED | Override of `TestSuite.run()`, only called from `test.py` |
 
 ### `PythonTest` Class
@@ -293,13 +293,13 @@ re-export was removed.
 | Code | Category | Status |
 |------|----------|--------|
 | `manager_api_sock_path` fixture `else` branch (starts `ScyllaClusterManager`) | LEGACY-ONLY | 🔄 REMAINING (deferred to Phase 2) |
-| `manager` fixture — `get_testpy_test()` call for log path computation | LEGACY-ONLY | 🔄 REMAINING (deferred to Phase 2) |
+| `manager` fixture — `get_testpy_test()` call for log path computation | LEGACY-ONLY | ✅ REMOVED | Now uses `testpy_test` fixture parameter directly |
 
 ### `test/cql/conftest.py`
 
 | Code | Category | Status |
 |------|----------|--------|
-| `output_path` fixture (calls `get_testpy_test()` for reject file path) | LEGACY-ONLY | 🔄 REMAINING |
+| `output_path` fixture (calls `get_testpy_test()` for reject file path) | LEGACY-ONLY | ✅ REMOVED | Now uses `testpy_test` fixture parameter directly |
 | `scope=testpy_test_fixture_scope` on `keyspace` | Scope function kept (condition changes in Phase 2) | 🔄 REMAINING |
 
 ### `test/nodetool/conftest.py`

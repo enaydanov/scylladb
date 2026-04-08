@@ -25,7 +25,6 @@ from test.pylib.util import unique_name
 from test.pylib.manager_client import ManagerClient
 from test.pylib.async_cql import run_async
 from test.pylib.scylla_cluster import ScyllaClusterManager, ScyllaVersionDescription, get_scylla_2025_1_description
-from test.pylib.suite import get_testpy_test
 from test.pylib.runner import add_cql_connection_options
 from test.pylib.encryption_provider import KeyProvider, make_key_provider_factory
 import logging
@@ -241,11 +240,11 @@ async def manager_internal(request: pytest.FixtureRequest, manager_api_sock_path
 async def manager(request: pytest.FixtureRequest,
                   manager_internal: Callable[[], ManagerClient],
                   record_property: Callable[[str, object], None],
-                  build_mode: str) -> AsyncGenerator[ManagerClient]:
+                  build_mode: str,
+                  testpy_test: Test) -> AsyncGenerator[ManagerClient]:
     """
     Per test fixture to notify Manager client object when tests begin so it can perform checks for cluster state.
     """
-    testpy_test = await get_testpy_test(path=request.path, options=request.config.option, mode=build_mode)
     test_case_name = request.node.name
     log_dir = testpy_test.suite.log_dir
     # uname is "suitename.shortname.id"; strip the trailing ".id"

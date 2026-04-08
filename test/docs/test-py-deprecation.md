@@ -136,15 +136,15 @@ task monitoring CPU/memory to SQLite during the entire test session.  Options:
   it blocks full migration.
 
 **`cluster/conftest.py` decoupling** -- The `manager` fixture calls
-`get_testpy_test()` solely for log path computation.  `Test.log_filename`
+the `testpy_test` fixture solely for log path computation.  `Test.log_filename`
 has been removed; the fixture now uses `suite.log_dir` and `uname` directly.
 To fully decouple:
 - Compute log paths directly from pytest's `tmp_path` or a configuration
   fixture.
-- Remove the `get_testpy_test()` dependency.
+- The `get_testpy_test()` dependency was removed by inlining into the `testpy_test` fixture.
 
 **`cql/conftest.py` `output_path` fixture** -- Similarly calls
-`get_testpy_test()` just for `testpy_test.suite.log_dir / f"{testpy_test.uname}.reject"`.
+the `testpy_test` fixture just for `testpy_test.suite.log_dir / f"{testpy_test.uname}.reject"`.
 Replace with a path derived from pytest's `tmp_path`.
 
 ### Hard (> 3 days)
@@ -299,7 +299,7 @@ managed Scylla instance), while test.py and bare pytest need `"module"` scope
 
 - `scylla_gdb/conftest.py` crash — the `scylla_server` fixture has no `None`
   guard (deferred to later phase).
-- `cluster/conftest.py` and `cql/conftest.py` `get_testpy_test()` calls —
+- `cluster/conftest.py` and `cql/conftest.py` now use `testpy_test` fixture —
   these create full `TestSuite`+`Test` objects for path computation (deferred).
 - `testpy_test_fixture_scope` function itself — cannot be replaced with a
   literal because runpy needs `"session"` and pytest needs `"module"`.

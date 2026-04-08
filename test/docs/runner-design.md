@@ -50,7 +50,8 @@ The file is approximately 527 lines.
 From `test.pylib.suite.base`:
 - `PYTEST_TESTS_LOGS_FOLDER` -- subdirectory name for failure logs
 - `TestSuite` -- class-level `artifacts`, `hosts`, `init_testsuite_globals()`
-- `get_testpy_test` -- creates a `Test` instance for a file path
+- `Test` -- test instance class
+- `TEST_CONFIG_FILENAME` -- config file name constant
 - `prepare_environment` -- initializes directories and services
 - `init_testsuite_globals` -- one-time global setup
 
@@ -349,7 +350,9 @@ The primary bridge fixture between pytest and the suite framework.
 async def testpy_test(request, build_mode) -> Test | None
 ```
 
-- If scope is `"module"` (test.py and bare pytest): calls `get_testpy_test(path=request.path, options=request.config.option, mode=build_mode)` and returns the created `Test` instance.
+- If scope is `"module"` (test.py and bare pytest): reads the suite path from
+  the stash, creates/retrieves the `TestSuite` via `opt_create()`, generates a
+  unique test ID, and returns a new `Test` instance.
 - If scope is `"session"` (runpy): returns `None`.  In runpy mode, runner.py is
   not loaded as a plugin; `test/conftest.py` provides its own session-scoped
   `testpy_test` that also returns `None`.
@@ -471,7 +474,7 @@ record, and writes to the `SYSTEM_RESOURCE_METRICS_TABLE`.
 | `TestSuite.hosts` | `pytest_sessionstart` (cleanup registration) |
 | `init_testsuite_globals()` | `pytest_sessionstart` -- global setup |
 | `prepare_environment()` | `pytest_sessionstart` -- directory and service setup |
-| `get_testpy_test()` | `testpy_test` fixture -- creates Test instances |
+| `Test` | `testpy_test` fixture -- creates Test instances |
 | `SystemResourceMetric` | `_resource_monitor_loop` -- metric records |
 | `SQLiteWriter` | `_resource_monitor_loop` -- database writes |
 
@@ -527,7 +530,7 @@ pytest_collection_modifyitems()
     |-- sort by suite order (run_first promoted)
     v
 test execution
-    |-- testpy_test fixture  --> get_testpy_test() --> TestSuite.opt_create() + suite.add_test()
+    |-- testpy_test fixture  --> TestSuite.opt_create() + Test()
     |-- conftest fixtures use testpy_test.suite for clusters, hosts, config
     v
 pytest_runtest_makereport()

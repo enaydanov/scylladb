@@ -21,7 +21,7 @@ import colorama
 import universalasync
 import yaml
 
-from test import TEST_DIR, TEST_RUNNER, path_to
+from test import TEST_RUNNER, path_to
 from test.pylib.artifact_registry import ArtifactRegistry
 from test.pylib.host_registry import HostRegistry
 from test.pylib.ldap_server import start_ldap
@@ -30,7 +30,7 @@ from test.pylib.pool import Pool
 from test.pylib.resource_gather import setup_cgroup
 from test.pylib.s3_proxy import S3ProxyServer
 from test.pylib.s3_server_mock import MockS3Server
-from test.pylib.scylla_cluster import ScyllaCluster, ScyllaServer, merge_cmdline_options, get_current_version_description, get_scylla_executable
+from test.pylib.scylla_cluster import ScyllaCluster, ScyllaServer, merge_cmdline_options, get_current_version_description
 from test.pylib.util import LogPrefixAdapter, get_xdist_worker_id
 
 if TYPE_CHECKING:
@@ -402,22 +402,3 @@ async def start_3rd_party_services(tempdir_base: pathlib.Path, toxiproxy_byte_li
     await proxy_s3_server.start()
     TestSuite.artifacts.add_exit_artifact(None, proxy_s3_server.stop)
 
-def find_suite_config(path: pathlib.Path, config_filename: str) -> pathlib.Path:
-    for directory in (path.joinpath("_") if path.is_dir() else path).absolute().relative_to(TEST_DIR).parents:
-        suite_config = TEST_DIR / directory / config_filename
-        if suite_config.exists():
-            return suite_config
-    raise FileNotFoundError(f"Unable to find a suite config file ({config_filename}) related to {path}")
-
-
-async def get_testpy_test(path: pathlib.Path, options: argparse.Namespace, mode: str) -> Test:
-    """Create an instance of Test class for the path provided."""
-    suite_config = find_suite_config(path=path, config_filename=TEST_CONFIG_FILENAME)
-    suite = TestSuite.opt_create(config=suite_config, options=options, mode=mode)
-    if getattr(options, "exe_path", False):
-        suite.scylla_exe = options.exe_path
-    elif getattr(options, "exe_url", False):
-        suite.scylla_exe = await get_scylla_executable(options.exe_url)
-    shortname = str(path.relative_to(suite.suite_path).with_suffix(""))
-    test_no = suite.next_id((shortname, suite.suite_key))
-    return Test(test_no, shortname, suite)

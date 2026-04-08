@@ -53,7 +53,6 @@ respectively.
 | `CQL_TEST_SUFFIX` | `test.pylib.cql_repl` | File suffix for CQL test files |
 | `CqlFile` | `test.pylib.cql_repl` | Custom pytest collector for `.cql` files |
 | `testpy_test_fixture_scope` | `test.pylib.runner` | Dynamic fixture scoping |
-| `get_testpy_test` | `test.pylib.suite` | Creates Test instances |
 | `add_host_option` | `test.pylib.runner` | CLI option helper |
 | `add_cql_connection_options` | `test.pylib.runner` | CLI option helper |
 
@@ -125,8 +124,8 @@ Autouse ensures every test in this directory runs within this keyspace context.
 Provides the file path for `.reject` files (actual output that differed from
 expected):
 
-1. Calls `await get_testpy_test(path=request.path, options=request.config.option, mode=build_mode)`.
-2. Returns `testpy_test.suite.log_dir / f"{testpy_test.uname}.reject"`.
+Takes the `testpy_test` fixture as a parameter and returns
+`testpy_test.suite.log_dir / f"{testpy_test.uname}.reject"`.
 
 This path is used by `CqlFile` to write the actual output when it differs from
 the expected `.result` file, enabling diff-based debugging.
@@ -143,7 +142,6 @@ the expected `.result` file, enabling diff-based debugging.
 | `cql` (fixture) | `cqlpy/conftest.py` | Re-imported -- provides CQL session |
 | `this_dc` (fixture) | `cqlpy/conftest.py` | Re-imported -- provides DC name |
 | `testpy_test_fixture_scope` | `runner.py` | Scope for `keyspace` fixture |
-| `get_testpy_test` | `suite.py` | `output_path` fixture |
 | `add_host_option` | `runner.py` | `pytest_addoption` |
 | `add_cql_connection_options` | `runner.py` | `pytest_addoption` |
 
@@ -171,7 +169,7 @@ cql fixture (from cqlpy)
     |-- CQL session connected to Scylla
     v
 output_path fixture (autouse)
-    |-- get_testpy_test() --> TestSuite instance
+    |-- uses testpy_test fixture for suite log_dir and uname
     |-- provides reject file path in suite log_dir
     v
 CQL test execution

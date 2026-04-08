@@ -29,13 +29,13 @@ from _pytest.junitxml import xml_key
 
 
 from test import ALL_MODES, DEBUG_MODES, TEST_RUNNER, TOP_SRC_DIR, TESTPY_PREPARED_ENVIRONMENT, HOST_ID
-from test.pylib.scylla_cluster import merge_cmdline_options
 from test.pylib.skip_reason_plugin import skip_marker
+from test.pylib.scylla_cluster import get_scylla_executable, merge_cmdline_options
 from test.pylib.suite import (
     PYTEST_TESTS_LOGS_FOLDER,
     TEST_CONFIG_FILENAME,
+    Test,
     TestSuite,
-    get_testpy_test,
     prepare_environment,
     init_testsuite_globals,
 )
@@ -55,8 +55,6 @@ if TYPE_CHECKING:
     import _pytest.scope
 
     from pytest import Parser
-
-    from test.pylib.suite import Test
 
 
 PYTEST_LOG_FOLDER = "pytest_log"
@@ -198,7 +196,17 @@ async def testpy_test(request: pytest.FixtureRequest, build_mode: str) -> Test |
     """Create an instance of Test class for the current test module."""
 
     if request.scope == "module":
-        return await get_testpy_test(path=request.path, options=request.config.option, mode=build_mode)
+        suite_path = request.node.stash[TEST_SUITE].path
+        suite_config = suite_path / TEST_CONFIG_FILENAME
+        options = request.config.option
+        suite = TestSuite.opt_create(config=suite_config, options=options, mode=build_mode)
+        if getattr(options, "exe_path", False):
+            suite.scylla_exe = options.exe_path
+        elif getattr(options, "exe_url", False):
+            suite.scylla_exe = await get_scylla_executable(options.exe_url)
+        shortname = str(request.path.relative_to(suite.suite_path).with_suffix(""))
+        test_no = suite.next_id((shortname, suite.suite_key))
+        return Test(test_no, shortname, suite)
     return None
 
 @pytest.fixture(scope="function")
