@@ -136,8 +136,8 @@ Each symbol was classified as:
 
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
-| `__init__()` | SHARED | 🔄 REMAINING | Called from `PythonTestSuite.add_test()` |
-| `_prepare_pytest_params()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — only called from `run_ctx()` which now builds args directly |
+| `__init__()` | SHARED | 🔄 REMAINING | Called from `testpy_test` fixture in `runner.py` |
+| `_prepare_pytest_params()` | DEAD | ✅ REMOVED | Outputs (`self.args`, `self.valid_exit_codes`) were never consumed; `run_ctx()` called it but never read its results |
 | `reset()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` chain |
 | `print_summary()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — abstract constraint lifted |
 | `run_ctx()` | SHARED | 🔄 REMAINING | Called from `test/cqlpy/conftest.py` and `test/scylla_gdb/conftest.py`; manages cluster lifecycle (lease from pool, before_test/after_test, teardown) |

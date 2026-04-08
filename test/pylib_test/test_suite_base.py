@@ -197,16 +197,14 @@ class TestTestInit:
 
     def test_uname_basic(self, mock_options, tmp_path):
         suite = _make_python_suite(str(tmp_path), {}, mock_options, "dev")
-        test_no = suite.next_id(("mytest", suite.suite_key))
-        test = _make_python_test(test_no, "mytest", suite)
+        test = _make_python_test("mytest", suite)
         # uname = suite_name.shortname.id
-        expected = f"{suite.name}.mytest.{test_no}"
+        expected = f"{suite.name}.mytest.{test.id}"
         assert test.uname == expected
 
     def test_uname_slash_replaced(self, mock_options, tmp_path):
         suite = _make_python_suite(str(tmp_path), {}, mock_options, "dev")
-        test_no = suite.next_id(("sub/test", suite.suite_key))
-        test = _make_python_test(test_no, "sub/test", suite)
+        test = _make_python_test("sub/test", suite)
         assert "/" not in test.uname
         assert "sub_test" in test.uname
 
@@ -216,8 +214,7 @@ class TestTestInit:
             suite = _make_python_suite(
                 str(tmp_path), {}, mock_options, "dev"
             )
-            test_no = suite.next_id(("xt", suite.suite_key))
-            test = _make_python_test(test_no, "xt", suite)
+            test = _make_python_test("xt", suite)
             assert test.uname.startswith("gw3.")
 
     def test_no_xdist_prefix(self, mock_options, tmp_path):
@@ -228,24 +225,9 @@ class TestTestInit:
             suite = _make_python_suite(
                 str(tmp_path), {}, mock_options, "dev"
             )
-            test_no = suite.next_id(("nt", suite.suite_key))
-            test = _make_python_test(test_no, "nt", suite)
+            test = _make_python_test("nt", suite)
             parts = test.uname.split(".")
             assert parts[0] == suite.name
-
-    def test_flaky_flag(self, mock_options, tmp_path):
-        cfg = {"type": "Python", "flaky": ["flaky_one"]}
-        suite = _make_python_suite(str(tmp_path), cfg, mock_options, "dev")
-        test_no = suite.next_id(("flaky_one", suite.suite_key))
-        test = _make_python_test(test_no, "flaky_one", suite)
-        assert test.is_flaky is True
-
-    def test_not_flaky_flag(self, mock_options, tmp_path):
-        cfg = {"type": "Python", "flaky": ["other"]}
-        suite = _make_python_suite(str(tmp_path), cfg, mock_options, "dev")
-        test_no = suite.next_id(("normal", suite.suite_key))
-        test = _make_python_test(test_no, "normal", suite)
-        assert test.is_flaky is False
 
 
 # ===================================================================
@@ -315,7 +297,7 @@ def _make_python_suite(path: str, cfg: dict, options, mode: str):
         return TestSuite(path, cfg, options, mode)
 
 
-def _make_python_test(test_no: int, shortname: str, suite):
+def _make_python_test(shortname: str, suite):
     """Create a Test instance."""
-    return Test(test_no, shortname, suite)
+    return Test(shortname, suite)
 

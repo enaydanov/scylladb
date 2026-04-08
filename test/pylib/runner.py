@@ -205,8 +205,7 @@ async def testpy_test(request: pytest.FixtureRequest, build_mode: str) -> Test |
         elif getattr(options, "exe_url", False):
             suite.scylla_exe = await get_scylla_executable(options.exe_url)
         shortname = str(request.path.relative_to(suite.suite_path).with_suffix(""))
-        test_no = suite.next_id((shortname, suite.suite_key))
-        return Test(test_no, shortname, suite)
+        return Test(shortname, suite)
     return None
 
 @pytest.fixture(scope="function")

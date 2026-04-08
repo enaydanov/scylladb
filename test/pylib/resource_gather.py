@@ -75,7 +75,7 @@ class ResourceGather(ABC):
         self.db_path = self.test.suite.log_dir.parent / DEFAULT_DB_NAME
         standardized_name = self.test.shortname.replace("/", "_")
         self.cgroup_path = Path(
-            f"{CGROUP_TESTS}/{self.test.suite.name}.{standardized_name}.{self.test.mode}.{self.test.id}"
+            f"{CGROUP_TESTS}/{self.test.suite.name}.{standardized_name}.{self.test.suite.mode}.{self.test.id}"
         )
         self.logger = logging.getLogger(__name__)
 
@@ -151,7 +151,7 @@ class ResourceGatherOn(ResourceGather):
                 host_id=HOST_ID,
                 architecture=platform.machine(),
                 directory=test.suite.name,
-                mode=test.mode,
+                mode=test.suite.mode,
                 run_id=test.id,
                 test_name=test.shortname,
             ),

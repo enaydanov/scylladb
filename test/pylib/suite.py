@@ -234,15 +234,14 @@ class TestSuite:
 
 class Test:
     """Run a pytest collection of cases against a standalone Scylla"""
-    def __init__(self, test_no: int, shortname: str, suite) -> None:
-        self.id = test_no
+    def __init__(self, shortname: str, suite) -> None:
+        self.id = suite.next_id((shortname, suite.suite_key))
         self.args: List[str] = []
         # Arguments which are required by a program regardless of additional test specific arguments
         self.core_args : List[str] = []
         self.valid_exit_codes = [0]
         # Name within the suite
         self.shortname = shortname
-        self.mode = suite.mode
         self.suite = suite
         # Unique file name, which is also readable by human, as filename prefix
         self.uname = f"{self.suite.name}.{self.shortname.replace('/', '_')}.{self.id}"
@@ -258,7 +257,7 @@ class Test:
         The cluster is returned to the pool after the test finishes.
         If the test fails, the cluster is marked as dirty.
         """
-        loggerPrefix = self.mode + '/' + self.uname
+        loggerPrefix = self.suite.mode + '/' + self.uname
         logger = LogPrefixAdapter(logging.getLogger(loggerPrefix), {'prefix': loggerPrefix})
         name = os.path.join(self.suite.name, self.shortname.split('.')[0])
         server_log_filename = None

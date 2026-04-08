@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from test.pylib.suite.base import TestSuite
+from test.pylib.suite import TestSuite
 
 
 # ===================================================================
@@ -42,8 +42,7 @@ class TestRunCtx:
         from test.pylib.suite import Test
 
         suite = self._make_suite(tmp_path, mock_options, cfg, mode)
-        test_no = suite.next_id((shortname, suite.suite_key))
-        return Test(test_no, shortname, suite)
+        return Test(shortname, suite)
 
     def _mock_cluster(self):
         """Create a mock cluster with the interface run_ctx() expects.
