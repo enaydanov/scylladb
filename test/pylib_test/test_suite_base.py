@@ -228,6 +228,39 @@ class TestTestInit:
             assert parts[0] == suite.name
 
 
+
+# ===================================================================
+# Test.__init__ — no legacy attributes
+# ===================================================================
+
+
+class TestTestInitNoLegacyAttrs:
+    """Verify that Test.__init__() does not set legacy execution attributes.
+
+    The attributes ``args``, ``core_args``, and ``valid_exit_codes`` were
+    consumed by the deleted ``run_test()`` and ``_prepare_pytest_params()``
+    methods.  They are now dead code and must not be set.
+    """
+
+    def test_no_args_attribute(self, mock_options, tmp_path):
+        """Test instances must not carry an ``args`` attribute."""
+        suite = _make_python_suite(str(tmp_path), {}, mock_options, "dev")
+        test = _make_python_test("t", suite)
+        assert not hasattr(test, "args")
+
+    def test_no_core_args_attribute(self, mock_options, tmp_path):
+        """Test instances must not carry a ``core_args`` attribute."""
+        suite = _make_python_suite(str(tmp_path), {}, mock_options, "dev")
+        test = _make_python_test("t", suite)
+        assert not hasattr(test, "core_args")
+
+    def test_no_valid_exit_codes_attribute(self, mock_options, tmp_path):
+        """Test instances must not carry a ``valid_exit_codes`` attribute."""
+        suite = _make_python_suite(str(tmp_path), {}, mock_options, "dev")
+        test = _make_python_test("t", suite)
+        assert not hasattr(test, "valid_exit_codes")
+
+
 # ===================================================================
 # prepare_dir
 # ===================================================================

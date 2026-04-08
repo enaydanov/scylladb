@@ -57,8 +57,8 @@ These features work identically in bare pytest (with `runner.py` plugin):
 | Max failures | `--max-failures` -> `--maxfail` | Native `--maxfail` |
 | Mode selection | `--mode` | runner.py multi-mode collection |
 | Suite config (test_config.yaml) | Via `TestSuiteConfig` | runner.py `TestSuiteConfig.from_pytest_node()` |
-| 3rd party services | `prepare_environment()` | runner.py `pytest_sessionstart` (unconditional; `TESTPY_PREPARED_ENVIRONMENT` prevents double-init) |
-| Cluster lifecycle cleanup | `TestSuite.artifacts.cleanup_before_exit()` | runner.py `pytest_sessionfinish` (unconditional; `TESTPY_PREPARED_ENVIRONMENT` prevents double-cleanup) |
+| 3rd party services | `prepare_environment()` | runner.py `pytest_sessionstart` (unconditional) |
+| Cluster lifecycle cleanup | `TestSuite.artifacts.cleanup_before_exit()` | runner.py `pytest_sessionfinish` (unconditional) |
 | Test ordering | N/A (legacy used its own loop) | runner.py `pytest_collection_modifyitems` |
 | Mode-based skip | N/A | runner.py `@pytest.mark.skip_mode` |
 | Timeout scaling by mode | N/A | runner.py `scale_timeout` fixture |

@@ -63,7 +63,7 @@ From `test/__init__.py`:
 - `ALL_MODES`, `DEBUG_MODES` -- mode definitions
 - `TEST_RUNNER` -- `"pytest"` (default, for test.py and bare pytest) or `"runpy"` (for run.py scripts); from `SCYLLA_TEST_RUNNER` env
 - `TOP_SRC_DIR` -- repository root
-- `TESTPY_PREPARED_ENVIRONMENT` -- env var gate
+- ~~`TESTPY_PREPARED_ENVIRONMENT`~~ -- removed; env var gate was always-false since test.py stopped setting it
 - `HOST_ID` -- unique host identifier
 
 Resource watcher imports:

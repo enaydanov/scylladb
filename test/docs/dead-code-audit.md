@@ -96,6 +96,9 @@ Each symbol was classified as:
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
 | `__init__()` | SHARED | 🔄 REMAINING | Called by all test subclass constructors |
+| `args` | ALREADY-DEAD | ✅ REMOVED | Set in `__init__()` but never read; consumed by deleted `run_test()` |
+| `core_args` | ALREADY-DEAD | ✅ REMOVED | Set in `__init__()` but never read; consumed by deleted `run_test()` |
+| `valid_exit_codes` | ALREADY-DEAD | ✅ REMOVED | Set in `__init__()` but never read; consumed by deleted `run_test()` |
 | `reset()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` |
 | `failed` (property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — zero callers remained |
 | `did_not_run` (property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — zero callers remained |
@@ -269,13 +272,13 @@ re-export was removed.
 | `testpy_test_fixture_scope()` | SHARED | 🔄 REMAINING | Condition changed in Phase 2 from `--test-py-init` to `TEST_RUNNER`; function kept because runpy needs `"session"` scope |
 | `testpy_test` fixture | SHARED (simplifiable) | 🔄 REMAINING | Deferred to Phase 2 |
 | `scylla_binary` fixture | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |
-| `pytest_sessionstart` init block | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |
-| `pytest_sessionfinish` cleanup | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |
+| `pytest_sessionstart` init block | SHARED | 🔄 REMAINING (simplified) | `TESTPY_PREPARED_ENVIRONMENT` guards removed; init is now unconditional |
+| `pytest_sessionfinish` cleanup | SHARED | 🔄 REMAINING (simplified) | `TESTPY_PREPARED_ENVIRONMENT` guards removed; cleanup is now unconditional for non-xdist workers |
 | `pytest_configure` logging | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |
 | `pytest_runtest_makereport` log capture | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |
 | `SUITE_CONFIG_FILENAME` import and check | LEGACY-ONLY | ✅ REMOVED | Import removed; `from_pytest_node()` now checks only `TEST_CONFIG_FILENAME` |
 
-**Total remaining**: ~120 lines (25%) are test.py-specific.  Deferred to Phase 2.
+**Total remaining**: ~110 lines are test.py-specific.  Deferred to Phase 2.
 
 ---
 

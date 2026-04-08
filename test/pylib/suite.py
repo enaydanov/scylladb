@@ -176,10 +176,6 @@ class Test:
     """Run a pytest collection of cases against a standalone Scylla"""
     def __init__(self, shortname: str, suite) -> None:
         self.id = suite.next_id((shortname, suite.suite_key))
-        self.args: List[str] = []
-        # Arguments which are required by a program regardless of additional test specific arguments
-        self.core_args : List[str] = []
-        self.valid_exit_codes = [0]
         # Name within the suite
         self.shortname = shortname
         self.suite = suite

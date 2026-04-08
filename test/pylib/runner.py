@@ -31,7 +31,7 @@ import yaml
 from _pytest.junitxml import xml_key
 
 
-from test import ALL_MODES, DEBUG_MODES, TEST_RUNNER, TOP_SRC_DIR, TESTPY_PREPARED_ENVIRONMENT, HOST_ID
+from test import ALL_MODES, DEBUG_MODES, TEST_RUNNER, TOP_SRC_DIR, HOST_ID
 from test.pylib.skip_reason_plugin import skip_marker
 from test.pylib.scylla_cluster import get_scylla_executable, merge_cmdline_options
 from test.pylib.suite import (
@@ -151,7 +151,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption("--coverage-mode", action='append', type=str, dest="coverage_modes",
                      help="Collect and process coverage only for the modes specified. implies: --coverage, default: All built modes")
     parser.addoption("--cluster-pool-size", type=int,
-                     help="Set the pool_size for PythonTest and its descendants.  Alternatively environment variable "
+                     help="Set the cluster pool size for test suites.  Alternatively environment variable "
                           "CLUSTER_POOL_SIZE can be used to achieve the same")
     parser.addoption("--extra-scylla-cmdline-options", default='',
                      help="Passing extra scylla cmdline options for all tests.  Options should be space separated:"
@@ -328,15 +328,12 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     # Check if this is an xdist worker
     is_xdist_worker = xdist.is_xdist_worker(request_or_session=session)
 
-    # Always initialize globals in xdist workers (they run in separate processes)
-    # For the main process, only init if test.py hasn't done so already
-    if is_xdist_worker or TESTPY_PREPARED_ENVIRONMENT not in os.environ:
-        init_testsuite_globals()
-        TestSuite.artifacts.add_exit_artifact(None, TestSuite.hosts.cleanup)
+    # Initialize globals — always needed (xdist workers run in separate processes)
+    init_testsuite_globals()
+    TestSuite.artifacts.add_exit_artifact(None, TestSuite.hosts.cleanup)
 
-    # Run stuff just once for the main pytest process (not in xdist workers).
-    # Only prepare the environment if it hasn't been prepared by test.py
-    if not is_xdist_worker and TESTPY_PREPARED_ENVIRONMENT not in os.environ:
+    # Prepare environment just once in the main pytest process (not in xdist workers)
+    if not is_xdist_worker:
         temp_dir = pathlib.Path(session.config.getoption("--tmpdir")).absolute()
 
         prepare_environment(
@@ -399,14 +396,11 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     # If all tests passed, remove the log file to save space and avoid confusion with logs from failed runs.
     # We check this at the end of the session to ensure that we have the complete log available for any failed tests.
 
-    if not (not is_xdist_worker and TESTPY_PREPARED_ENVIRONMENT in os.environ): # If this is not an xdist worker and test.py has prepared the environment, there is no separate xdist main process and no pytest_main.log file
-        if session.testsfailed == 0 and not session.config.getoption("--save-log-on-success"):
-            os.remove(_pytest_config.stash[PYTEST_LOG_FILE])
+    if session.testsfailed == 0 and not session.config.getoption("--save-log-on-success"):
+        os.remove(_pytest_config.stash[PYTEST_LOG_FILE])
 
-    # Check if this is an xdist worker - workers should not clean up (only the main process should)
-    # Check if test.py has already prepared the environment, so it should clean up
-
-    if is_xdist_worker or TESTPY_PREPARED_ENVIRONMENT in os.environ:
+    # xdist workers should not clean up — only the main process should
+    if is_xdist_worker:
         return
     _stop_resource_watcher()
     # we only clean up when running with pure pytest

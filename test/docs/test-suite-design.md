@@ -312,7 +312,7 @@ It walks up the pytest node tree to find the config file and stores
 the result in the stash, which the `testpy_test` fixture then reads.
 
 **Session setup**: calls `init_testsuite_globals()` and `prepare_environment()`
-during pytest session start (gated by `TESTPY_PREPARED_ENVIRONMENT` env var
+during pytest session start (unconditionally for non-xdist-worker processes
 to prevent double-initialization when test.py has already prepared the environment).
 
 > **Note:** `runner.py` is only loaded as a pytest plugin when

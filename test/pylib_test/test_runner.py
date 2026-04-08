@@ -106,9 +106,7 @@ class TestHookBehavior:
             "--save-log-on-success": False,
             "--byte-limit": 100,
         }[opt]
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("TESTPY_PREPARED_ENVIRONMENT", None)
-            pytest_sessionstart(session)
+        pytest_sessionstart(session)
         mock_init.assert_called_once()
         mock_prep.assert_called_once()
 
@@ -261,9 +259,7 @@ class TestResourceWatcher:
             "--save-log-on-success": False,
             "--byte-limit": 100,
         }[opt]
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("TESTPY_PREPARED_ENVIRONMENT", None)
-            pytest_sessionstart(session)
+        pytest_sessionstart(session)
         mock_start.assert_called_once()
 
     @patch("test.pylib.runner._start_resource_watcher")
@@ -286,9 +282,7 @@ class TestResourceWatcher:
             "--save-log-on-success": False,
             "--byte-limit": 100,
         }[opt]
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("TESTPY_PREPARED_ENVIRONMENT", None)
-            pytest_sessionstart(session)
+        pytest_sessionstart(session)
         mock_start.assert_not_called()
 
 
@@ -377,3 +371,97 @@ class TestFromPytestNodeMerge:
         assert result is not None
         assert result.cfg["extra_scylla_cmdline_options"] == ["--smp", "1"]
 
+
+
+# ---------------------------------------------------------------------------
+# TESTPY_PREPARED_ENVIRONMENT removal — unconditional session hooks
+# ---------------------------------------------------------------------------
+
+
+class TestNoTestpyPreparedEnvironment:
+    """Verify that TESTPY_PREPARED_ENVIRONMENT is no longer referenced.
+
+    test.py no longer sets this env var (removed in Phase 3), so all
+    conditionals gating on it were always-true or always-false.  The
+    constant and all guards have been removed.
+    """
+
+    def test_constant_not_in_test_init(self):
+        """The TESTPY_PREPARED_ENVIRONMENT constant must not exist in test/__init__.py."""
+        import test
+        assert not hasattr(test, "TESTPY_PREPARED_ENVIRONMENT")
+
+    def test_not_imported_by_runner(self):
+        """runner.py must not import TESTPY_PREPARED_ENVIRONMENT."""
+        import test.pylib.runner as runner
+        # Check that the module-level namespace doesn't contain it
+        assert not hasattr(runner, "TESTPY_PREPARED_ENVIRONMENT")
+
+    @patch("test.pylib.runner.prepare_environment")
+    @patch("test.pylib.runner.TestSuite")
+    @patch("test.pylib.runner.init_testsuite_globals")
+    @patch("test.pylib.runner.xdist")
+    @patch("test.pylib.runner.TEST_RUNNER", "pytest")
+    @patch("test.pylib.runner.get_modes_to_run", return_value=["debug"])
+    def test_sessionstart_unconditionally_initializes(
+        self, mock_get_modes, mock_xdist, mock_init, mock_ts, mock_prep
+    ):
+        """pytest_sessionstart always initializes globals (no TESTPY_PREPARED_ENVIRONMENT gate)."""
+        mock_xdist.is_xdist_worker.return_value = False
+        session = MagicMock()
+        session.config.getoption.side_effect = lambda opt: {
+            "--collect-only": False,
+            "--tmpdir": "/tmp/test",
+            "--gather-metrics": False,
+            "--save-log-on-success": False,
+            "--byte-limit": 100,
+        }[opt]
+        # Even with the env var set, initialization should proceed
+        with patch.dict(os.environ, {"TESTPY_PREPARED_ENVIRONMENT": "1"}, clear=False):
+            pytest_sessionstart(session)
+        mock_init.assert_called_once()
+        mock_prep.assert_called_once()
+
+    @patch("test.pylib.runner._stop_resource_watcher")
+    @patch("test.pylib.runner.asyncio")
+    @patch("test.pylib.runner.xdist")
+    @patch("test.pylib.runner._pytest_config")
+    def test_sessionfinish_unconditionally_cleans_up(
+        self, mock_config, mock_xdist, mock_asyncio, mock_stop
+    ):
+        """pytest_sessionfinish always cleans up (no TESTPY_PREPARED_ENVIRONMENT gate)."""
+        mock_xdist.is_xdist_worker.return_value = False
+        mock_config.stash = {object(): "/tmp/log"}  # dummy stash
+        session = MagicMock()
+        session.testsfailed = 1  # skip log removal path
+        session.config.getoption.side_effect = lambda opt: {
+            "--save-log-on-success": False,
+            "maxfail": 0,
+        }[opt]
+        # Even with the env var set, cleanup should proceed
+        with patch.dict(os.environ, {"TESTPY_PREPARED_ENVIRONMENT": "1"}, clear=False):
+            pytest_sessionfinish(session)
+        mock_stop.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Help text — no reference to deleted PythonTest class
+# ---------------------------------------------------------------------------
+
+
+class TestHelpTextNoPythonTest:
+    """Verify that CLI help text references TestSuite, not the deleted PythonTest."""
+
+    def test_cluster_pool_size_help_no_pythontest(self):
+        """--cluster-pool-size help text must not reference PythonTest."""
+        parser = MagicMock()
+        pytest_addoption(parser)
+        for call_obj in parser.addoption.call_args_list:
+            if "--cluster-pool-size" in call_obj.args:
+                help_text = call_obj.kwargs.get("help", "")
+                assert "PythonTest" not in help_text, (
+                    f"Help text still references deleted PythonTest class: {help_text}"
+                )
+                break
+        else:
+            pytest.fail("--cluster-pool-size option not found")
