@@ -28,6 +28,7 @@ from test.pylib.suite.base import (
     find_suite_config,
     palette,
     prepare_dir,
+    read_log,
 )
 
 
@@ -455,6 +456,299 @@ class TestPrepareDir:
         # Let's just verify it doesn't crash and dir is usable
         assert target.is_dir() or not target.exists()
 
+
+
+# ===================================================================
+# TestSuite.test_count — dead code (zero callers)
+# ===================================================================
+
+
+class TestTestCount:
+    """Characterization tests for TestSuite.test_count() static method.
+
+    This method sums all values in TestSuite._next_id.  It has zero
+    callers in the codebase and is dead code slated for Phase 4 removal.
+    """
+
+    def test_returns_sum_of_next_ids(self, mock_options, tmp_path):
+        """After calling next_id multiple times, test_count returns the sum."""
+        suite = _make_tool_suite(str(tmp_path), {"type": "Tool"}, mock_options, "dev")
+        # Generate 3 ids for key "a" and 2 for key "b"
+        for _ in range(3):
+            suite.next_id(("a", suite.suite_key))
+        for _ in range(2):
+            suite.next_id(("b", suite.suite_key))
+        # _next_id now has {("a", key): 3, ("b", key): 2} → sum = 5
+        assert TestSuite.test_count() == 5
+
+    def test_empty_returns_zero(self):
+        """When no next_id calls have been made, test_count returns 0."""
+        assert TestSuite.test_count() == 0
+
+
+# ===================================================================
+# TestSuite.all_tests — dead code (zero callers)
+# ===================================================================
+
+
+class TestAllTests:
+    """Characterization tests for TestSuite.all_tests() static method.
+
+    This method chains suite.tests from every registered suite.  It has
+    zero callers in the codebase and is dead code slated for Phase 4
+    removal.
+    """
+
+    def test_chains_tests_from_all_suites(self, mock_options, tmp_path):
+        """Two suites with tests — all_tests returns tests from both."""
+        dir_a = tmp_path / "suite_a"
+        dir_b = tmp_path / "suite_b"
+        dir_a.mkdir()
+        dir_b.mkdir()
+        suite_a = _make_tool_suite(str(dir_a), {"type": "Tool"}, mock_options, "dev")
+        suite_b = _make_tool_suite(str(dir_b), {"type": "Tool"}, mock_options, "dev")
+        # Register suites — _make_tool_suite bypasses opt_create which
+        # normally populates TestSuite.suites.
+        TestSuite.suites[suite_a.suite_key] = suite_a
+        TestSuite.suites[suite_b.suite_key] = suite_b
+        test_a = _make_tool_test(suite_a.next_id(("t1", suite_a.suite_key)), "t1", suite_a)
+        test_b = _make_tool_test(suite_b.next_id(("t2", suite_b.suite_key)), "t2", suite_b)
+        suite_a.tests.append(test_a)
+        suite_b.tests.append(test_b)
+        result = list(TestSuite.all_tests())
+        assert test_a in result
+        assert test_b in result
+        assert len(result) == 2
+
+    def test_empty_when_no_suites(self):
+        """When no suites are registered, all_tests returns empty."""
+        result = list(TestSuite.all_tests())
+        assert result == []
+
+
+# ===================================================================
+# Test.failed property — dead code (zero callers)
+# ===================================================================
+
+
+class TestFailedProperty:
+    """Characterization tests for Test.failed property.
+
+    Logic: started and not success and not is_cancelled.
+    This property has zero callers and is dead code slated for Phase 4
+    removal.
+    """
+
+    def _make_test(self, mock_options, tmp_path):
+        suite = _make_tool_suite(str(tmp_path), {"type": "Tool"}, mock_options, "dev")
+        test_no = suite.next_id(("fp", suite.suite_key))
+        return _make_tool_test(test_no, "fp", suite)
+
+    def test_not_started_is_not_failed(self, mock_options, tmp_path):
+        """A test that never started is not considered failed."""
+        test = self._make_test(mock_options, tmp_path)
+        assert test.started is False
+        assert test.failed is False
+
+    def test_started_unsuccessful_is_failed(self, mock_options, tmp_path):
+        """A test that started but did not succeed is failed."""
+        test = self._make_test(mock_options, tmp_path)
+        test.started = True
+        test.success = False
+        assert test.failed is True
+
+    def test_started_successful_is_not_failed(self, mock_options, tmp_path):
+        """A test that started and succeeded is not failed."""
+        test = self._make_test(mock_options, tmp_path)
+        test.started = True
+        test.success = True
+        assert test.failed is False
+
+    def test_cancelled_is_not_failed(self, mock_options, tmp_path):
+        """A cancelled test is not considered failed even if unsuccessful."""
+        test = self._make_test(mock_options, tmp_path)
+        test.started = True
+        test.success = False
+        test.is_cancelled = True
+        assert test.failed is False
+
+
+# ===================================================================
+# Test.did_not_run property — dead code (zero callers)
+# ===================================================================
+
+
+class TestDidNotRunProperty:
+    """Characterization tests for Test.did_not_run property.
+
+    Logic: not started or is_cancelled.
+    This property has zero callers and is dead code slated for Phase 4
+    removal.
+    """
+
+    def _make_test(self, mock_options, tmp_path):
+        suite = _make_tool_suite(str(tmp_path), {"type": "Tool"}, mock_options, "dev")
+        test_no = suite.next_id(("dnr", suite.suite_key))
+        return _make_tool_test(test_no, "dnr", suite)
+
+    def test_not_started_did_not_run(self, mock_options, tmp_path):
+        """A test that never started did not run."""
+        test = self._make_test(mock_options, tmp_path)
+        assert test.started is False
+        assert test.did_not_run is True
+
+    def test_started_ran(self, mock_options, tmp_path):
+        """A test that started (and was not cancelled) did run."""
+        test = self._make_test(mock_options, tmp_path)
+        test.started = True
+        assert test.did_not_run is False
+
+    def test_cancelled_did_not_run(self, mock_options, tmp_path):
+        """A cancelled test is considered as did-not-run."""
+        test = self._make_test(mock_options, tmp_path)
+        test.started = True
+        test.is_cancelled = True
+        assert test.did_not_run is True
+
+
+# ===================================================================
+# read_log — dead code (only called by dead print_summary methods)
+# ===================================================================
+
+
+class TestReadLog:
+    """Characterization tests for read_log() function.
+
+    This function reads a log file and returns its content, or a
+    placeholder message if the file is missing or empty.  It is only
+    called by print_summary() methods which are themselves dead code,
+    so it is slated for Phase 4 removal.
+    """
+
+    def test_reads_file_content(self, tmp_path):
+        """An existing file with content returns that content."""
+        log = tmp_path / "test.log"
+        log.write_text("some log output\nline 2\n")
+        assert read_log(log) == "some log output\nline 2\n"
+
+    def test_missing_file_returns_placeholder(self, tmp_path):
+        """A nonexistent file returns a 'not found' placeholder."""
+        log = tmp_path / "missing.log"
+        result = read_log(log)
+        assert "not found" in result.lower()
+
+    def test_empty_file_returns_placeholder(self, tmp_path):
+        """An empty file returns an 'Empty log output' placeholder."""
+        log = tmp_path / "empty.log"
+        log.write_text("")
+        result = read_log(log)
+        assert "Empty log output" in result
+
+# ===================================================================
+# Test.allure_dir — dead attribute (only consumed by _prepare_pytest_params)
+# ===================================================================
+
+
+class TestAllureDirAttribute:
+    """Characterization tests for Test.allure_dir attribute.
+
+    This attribute is set in Test.__init__ but only consumed by
+    _prepare_pytest_params() which is dead code.  Slated for Phase 4
+    removal.
+    """
+
+    def test_allure_dir_exists(self, mock_options, tmp_path):
+        """Test instances have an allure_dir attribute."""
+        suite = _make_python_suite(str(tmp_path), {"type": "Python"}, mock_options, "dev")
+        test_no = suite.next_id(("at", suite.suite_key))
+        test = _make_python_test(test_no, "at", suite)
+        assert hasattr(test, "allure_dir")
+
+    def test_allure_dir_is_path(self, mock_options, tmp_path):
+        """allure_dir is derived from suite.log_dir."""
+        suite = _make_python_suite(str(tmp_path), {"type": "Python"}, mock_options, "dev")
+        test_no = suite.next_id(("at2", suite.suite_key))
+        test = _make_python_test(test_no, "at2", suite)
+        assert test.allure_dir == suite.log_dir / "allure"
+
+
+# ===================================================================
+# TopologyTestSuite / TopologyTest — empty subclasses
+# ===================================================================
+
+
+class TestTopologySubclasses:
+    """Characterization tests for TopologyTestSuite/TopologyTest.
+
+    These are empty pass-through subclasses of PythonTestSuite/PythonTest
+    that add nothing after Phase 1 removed their run()/junit_tests()
+    overrides.  Slated for Phase 4 removal.
+    """
+
+    def test_topology_test_suite_exists(self):
+        """TopologyTestSuite is importable."""
+        from test.pylib.suite.topology import TopologyTestSuite
+        from test.pylib.suite.python import PythonTestSuite
+        assert issubclass(TopologyTestSuite, PythonTestSuite)
+
+    def test_topology_test_exists(self):
+        """TopologyTest is importable."""
+        from test.pylib.suite.topology import TopologyTest
+        from test.pylib.suite.python import PythonTest
+        assert issubclass(TopologyTest, PythonTest)
+
+    def test_topology_type_resolves(self, mock_options, tmp_path):
+        """opt_create resolves 'Topology' type to TopologyTestSuite."""
+        from test.pylib.suite.topology import TopologyTestSuite
+        suite_dir = tmp_path / "topo_suite"
+        suite_dir.mkdir()
+        config = suite_dir / "test_config.yaml"
+        import yaml
+        config.write_text(yaml.dump({"type": "Topology"}))
+        suite = TestSuite.opt_create(config, mock_options, "dev")
+        assert isinstance(suite, TopologyTestSuite)
+
+
+# ===================================================================
+# PythonTest.server_log — dead attribute
+# ===================================================================
+
+
+class TestServerLogAttribute:
+    """Characterization tests for PythonTest.server_log attribute.
+
+    This attribute is set in PythonTest.__init__ and assigned in run_ctx()
+    but never read after print_summary() was removed.  Slated for Phase 4
+    removal.
+    """
+
+    def test_server_log_exists(self, mock_options, tmp_path):
+        """PythonTest instances have a server_log attribute initialized to None."""
+        suite = _make_python_suite(str(tmp_path), {"type": "Python"}, mock_options, "dev")
+        test_no = suite.next_id(("sl", suite.suite_key))
+        test = _make_python_test(test_no, "sl", suite)
+        assert hasattr(test, "server_log")
+        assert test.server_log is None
+
+
+# ===================================================================
+# PythonTestSuite.test_file_ext — dead after CQLApproval removal
+# ===================================================================
+
+
+class TestFileExtAttribute:
+    """Characterization tests for PythonTestSuite.test_file_ext.
+
+    This class attribute exists to be overridden by CQLApprovalTestSuite
+    (which sets it to '.cql').  Once CQLApprovalTestSuite is removed,
+    there is no override and the attribute becomes unnecessary.  Slated
+    for Phase 4 removal.
+    """
+
+    def test_python_suite_has_py_ext(self, mock_options, tmp_path):
+        """PythonTestSuite.test_file_ext is '.py'."""
+        suite = _make_python_suite(str(tmp_path), {"type": "Python"}, mock_options, "dev")
+        assert suite.test_file_ext == ".py"
 
 
 # ===================================================================
