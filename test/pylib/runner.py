@@ -131,7 +131,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
                      help="Run only tests for given build mode(s)")
     parser.addoption('--tmpdir', action='store', default=str(TOP_SRC_DIR / 'testlog'),
                      help='Path to temporary test data and log files.  The data is further segregated per build mode.')
-    parser.addoption('--run_id', action='store', default=None, help='Run id for the test run')
+    parser.addoption('--run_id', action='store', default=None, type=int, help='Run id for the test run')
     parser.addoption('--byte-limit', action="store", default=randint(0, 2000), type=int,
                      help="Specific byte limit for failure injection (random by default)")
     parser.addoption("--gather-metrics", action=BooleanOptionalAction, default=False,
@@ -212,7 +212,7 @@ async def testpy_test(request: pytest.FixtureRequest, build_mode: str) -> Test |
         elif getattr(options, "exe_url", False):
             suite.scylla_exe = await get_scylla_executable(options.exe_url)
         shortname = str(request.path.relative_to(suite.suite_path).with_suffix(""))
-        return Test(shortname, suite)
+        return Test(shortname, suite, run_id=request.node.stash[RUN_ID])
     return None
 
 @pytest.fixture(scope="function")

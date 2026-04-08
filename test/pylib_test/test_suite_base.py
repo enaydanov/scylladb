@@ -51,50 +51,24 @@ class TestCreateFormatter:
 
 
 # ===================================================================
-# TestSuite.next_id
+# Test.__init__ — run_id parameter
 # ===================================================================
 
 
-class TestNextId:
-    """Tests for the monotonic ID generator TestSuite.next_id()."""
+class TestTestRunId:
+    """Tests for the run_id parameter added to Test.__init__()."""
 
-    def _make_suite(self, mock_options, tmp_path, mode="dev"):
-        """Helper: create a concrete TestSuite subclass instance."""
-        cfg = {}
-        suite_dir = tmp_path / "s"
-        suite_dir.mkdir(exist_ok=True)
-        return _make_python_suite(str(suite_dir), cfg, mock_options, mode)
+    def test_run_id_sets_id(self, mock_options, tmp_path):
+        """Test.id is set directly from the run_id argument."""
+        suite = _make_python_suite(str(tmp_path), {}, mock_options, "dev")
+        test = _make_python_test("mytest", suite, run_id=7)
+        assert test.id == 7
 
-    def test_monotonic_increment(self, mock_options, tmp_path):
-        suite = self._make_suite(mock_options, tmp_path)
-        ids = [suite.next_id("test_a") for _ in range(5)]
-        assert ids == [1, 2, 3, 4, 5]
-
-    def test_independent_keys(self, mock_options, tmp_path):
-        suite = self._make_suite(mock_options, tmp_path)
-        a1 = suite.next_id("test_a")
-        b1 = suite.next_id("test_b")
-        a2 = suite.next_id("test_a")
-        assert a1 == 1
-        assert b1 == 1
-        assert a2 == 2
-
-    def test_run_id_override(self, mock_options, tmp_path):
-        mock_options.run_id = 42
-        suite = self._make_suite(mock_options, tmp_path)
-        id1 = suite.next_id("test_a")
-        id2 = suite.next_id("test_a")
-        assert id1 == 42
-        assert id2 == 42  # always overwritten to run_id
-
-    def test_no_run_id_attribute(self, mock_options, tmp_path):
-        """When options doesn't have run_id at all, increments normally."""
-        # mock_options from fixture doesn't set run_id
-        if hasattr(mock_options, "run_id"):
-            delattr(mock_options, "run_id")
-        suite = self._make_suite(mock_options, tmp_path)
-        assert suite.next_id("k") == 1
-        assert suite.next_id("k") == 2
+    def test_run_id_is_int(self, mock_options, tmp_path):
+        """Test.id must be an integer."""
+        suite = _make_python_suite(str(tmp_path), {}, mock_options, "dev")
+        test = _make_python_test("mytest", suite, run_id=3)
+        assert isinstance(test.id, int)
 
 
 # ===================================================================
@@ -325,7 +299,7 @@ def _make_python_suite(path: str, cfg: dict, options, mode: str):
         return TestSuite(path, cfg, options, mode)
 
 
-def _make_python_test(shortname: str, suite):
+def _make_python_test(shortname: str, suite, run_id: int = 1):
     """Create a Test instance."""
-    return Test(shortname, suite)
+    return Test(shortname, suite, run_id=run_id)
 

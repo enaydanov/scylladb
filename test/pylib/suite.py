@@ -65,7 +65,6 @@ class TestSuite:
     artifacts: ArtifactRegistry
     hosts: HostRegistry
 
-    _next_id = collections.defaultdict(int) # (test_key -> id)
 
     def __init__(self, path: str, cfg: dict, options: argparse.Namespace, mode: str) -> None:
         self.suite_path = pathlib.Path(path)
@@ -74,7 +73,6 @@ class TestSuite:
         self.cfg = cfg
         self.options = options
         self.mode = mode
-        self.suite_key = os.path.join(path, mode)
         # environment variables that should be the base of all processes running in this suit
         self.base_env = {}
         if self.need_coverage():
@@ -88,22 +86,6 @@ class TestSuite:
         self.scylla_exe = path_to(self.mode, "scylla")
         self.dirties_cluster = set(cfg.get("dirties_cluster", []))
 
-
-    # Generate a unique ID for `--repeat`ed tests
-    # We want these tests to have different XML IDs so test result
-    # processors (Jenkins) don't merge results for different iterations of
-    # the same test. We also don't want the ids to be too random, because then
-    # there is no correlation between test identifiers across multiple
-    # runs of test.py, and so it's hard to understand failure trends. The
-    # compromise is for next_id() results to be unique only within a particular
-    # test case. That is, we'll have a.1, a.2, a.3, b.1, b.2, b.3 rather than
-    # a.1 a.2 a.3 b.4 b.5 b.6.
-    def next_id(self, test_key) -> int:
-        if getattr(self.options, "run_id", None):
-            TestSuite._next_id[test_key] = self.options.run_id
-        else:
-            TestSuite._next_id[test_key] += 1
-        return TestSuite._next_id[test_key]
 
 
     @staticmethod
@@ -174,8 +156,8 @@ class TestSuite:
 
 class Test:
     """Run a pytest collection of cases against a standalone Scylla"""
-    def __init__(self, shortname: str, suite) -> None:
-        self.id = suite.next_id((shortname, suite.suite_key))
+    def __init__(self, shortname: str, suite, run_id: int) -> None:
+        self.id = run_id
         # Name within the suite
         self.shortname = shortname
         self.suite = suite

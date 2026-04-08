@@ -138,7 +138,6 @@ Sets the following instance state:
 | `cfg` | The raw parsed YAML dict |
 | `options` | CLI options namespace |
 | `mode` | Build mode string |
-| `suite_key` | `os.path.join(path, mode)` |
 | `base_env` | Base environment dict. If coverage is needed, adds `LLVM_PROFILE_FILE`. |
 | `scylla_exe` | Path to the Scylla executable for the current mode, resolved via `path_to(mode, "scylla")`. |
 | `dirties_cluster` | Set of test shortnames from `cfg["dirties_cluster"]`. Tests in this set cause their cluster to be marked dirty after execution. |

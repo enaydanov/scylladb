@@ -25,10 +25,8 @@ from test.pylib.suite import TestSuite
 def clean_suite_state():
     """Reset TestSuite class-level shared state before *and* after each test."""
     TestSuite.suites.clear()
-    TestSuite._next_id.clear()
     yield
     TestSuite.suites.clear()
-    TestSuite._next_id.clear()
 
 
 # ---------------------------------------------------------------------------

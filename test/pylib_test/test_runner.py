@@ -445,6 +445,28 @@ class TestNoTestpyPreparedEnvironment:
 
 
 # ---------------------------------------------------------------------------
+# --run_id option — type=int enforcement
+# ---------------------------------------------------------------------------
+
+
+class TestRunIdOption:
+    """Verify that --run_id is registered with type=int."""
+
+    def test_run_id_has_type_int(self):
+        """--run_id must be registered with type=int so the stash value is an integer."""
+        parser = MagicMock()
+        pytest_addoption(parser)
+        for call_obj in parser.addoption.call_args_list:
+            if "--run_id" in call_obj.args:
+                assert call_obj.kwargs.get("type") is int, (
+                    "--run_id must have type=int to match RUN_ID = StashKey[int]()"
+                )
+                break
+        else:
+            pytest.fail("--run_id option not found")
+
+
+# ---------------------------------------------------------------------------
 # Help text — no reference to deleted PythonTest class
 # ---------------------------------------------------------------------------
 
