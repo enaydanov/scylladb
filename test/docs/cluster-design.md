@@ -23,7 +23,7 @@ helper functions, and their interactions with the suite framework.
 ## 1. Overview
 
 `test/cluster/conftest.py` provides fixtures for the topology/cluster test suite
-(suite type: `Topology`). Tests in this directory validate cluster topology
+(suite type: `Python`). Tests in this directory validate cluster topology
 operations (node add/remove, replace, decommission, etc.) using a
 `ScyllaClusterManager` that provides full lifecycle control over multi-node
 clusters.
@@ -282,10 +282,10 @@ Uses `async with` for proper cleanup.
 
 ```
 testpy_test fixture (from runner.py)
-    |-- get_testpy_test() --> TopologyTestSuite instance
+    |-- get_testpy_test() --> PythonTestSuite instance
     v
 manager_api_sock_path fixture
-    |-- testpy_test.suite.clusters (cluster pool from TopologyTestSuite)
+    |-- testpy_test.suite.clusters (cluster pool from PythonTestSuite)
     |-- testpy_test.suite.log_dir (log directory)
     |-- ScyllaClusterManager(test_uname, clusters, base_dir, sock_path)
     |-- start manager in ThreadPoolExecutor

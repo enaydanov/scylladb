@@ -243,21 +243,21 @@ code with 19 lines of insertions.  246 framework unit tests pass.
    since all directories migrated to `type: Python`.  `self.path` attribute
    removed from `Test` and `PythonTest` (never read by any production code).
 
-**What was intentionally kept:**
+**What was intentionally kept (at that time; later removed in Phase 4):**
 
 - `Test.print_summary()` (abstract) and all subclass implementations — the
-  `@abstractmethod` constraint requires implementations in all instantiated
-  subclasses.  `read_log()` was kept as a dependency of `print_summary()`.
+  `@abstractmethod` constraint required implementations.  ✅ Removed in Phase 4
+  along with `read_log()`.
 - `TestSuite.test_count()`, `TestSuite.all_tests()` — still called from
-  `test.py` (deferred to Phase 3).
+  `test.py` at that time.  ✅ Removed in Phase 4 (callers removed in Phase 3).
 - `Test.failed`, `Test.did_not_run` properties — still read from `test.py`
-  (deferred to Phase 3).
-- `pattern` abstract property — required by ABC contract (deferred to Phase 4).
+  at that time.  ✅ Removed in Phase 4 (callers removed in Phase 3).
+- `pattern` abstract property — required by ABC contract at that time.
+  ✅ Removed in Phase 4.
 - `PythonTest.run_ctx()` — cluster lifecycle context manager, still called
-  by `test/cqlpy/conftest.py` and `test/scylla_gdb/conftest.py` (deferred to
-  later phases).
+  by `test/cqlpy/conftest.py` and `test/scylla_gdb/conftest.py`.  Still present.
 - `_prepare_pytest_params()` on all test classes — still called by conftest
-  fixtures.
+  fixtures.  Still present.
 
 ### Phase 2: Make Runner Self-Sufficient — ✅ COMPLETE
 
@@ -361,60 +361,64 @@ runner.py, and SCYLLA_CONF/SCYLLA_HOME cleanup was moved to conftest.py.
 - CI targets unchanged — `configure.py` and `CMakeLists.txt` still invoke
   `./test.py` with `--mode`, `--repeat`, `--timeout`.
 
-### Phase 4: Clean Up Suite Framework
+### Phase 4: Clean Up Suite Framework — ✅ COMPLETE
 
-With the legacy execution pipeline removed, the suite framework can be
-substantially simplified.
+Phase 4 has been completed.  Dead code from the suite framework was removed
+across 6 source files, empty subclasses were eliminated, and dead options
+were cleaned up from runner.py.
 
-**Dead code removal** (symbols with zero remaining callers):
+**What was removed from `base.py`:**
 
-1. **Remove `TestSuite.test_count()`** -- only called from deleted `test.py`
-   functions.
-2. **Remove `TestSuite.all_tests()`** -- only called from deleted `test.py`
-   functions.
-3. **Remove abstract `pattern` property** from `TestSuite` and all overrides
-   (only consumed by deleted `build_test_list()`).
-4. **Remove `Test.failed`** and **`Test.did_not_run`** properties -- only read
-   from deleted `test.py` functions.
-5. **Remove `Test.print_summary()` abstract** and all subclass implementations
-   -- only called from deleted `test.py` functions.
-6. **Remove `read_log()`** -- only called from deleted `print_summary()`
-   methods.
-7. **Remove `PythonTest.scylla_env` setup block** -- only used by deleted
-   `run()` method.
-8. **Remove palette.nocolor members** -- dead code.
+- `TestSuite.test_count()`, `TestSuite.all_tests()` — static methods with
+  zero callers after Phase 3.
+- `TestSuite.pattern` abstract property — only consumed by the deleted
+  `build_test_list()`.  Removing this also removed the `@abstractmethod`
+  constraint that forced all subclasses to implement `pattern`.
+- `TestSuite.__init__` dead attributes: `pending_test_count`, `n_failed`,
+  `run_first_tests`, `no_parallel_cases`, `disabled_tests`, `flaky_tests`.
+- `Test.failed` property, `Test.did_not_run` property — zero callers.
+- `Test.print_summary()` abstract method — zero callers.
+- `Test.__init__` dead attributes: `is_flaky`, `is_flaky_failure`,
+  `is_cancelled`, `env`, `started`, `allure_dir`.
+- `read_log()` function — only called by dead `print_summary()` methods.
+- Dead `palette` members: `ok`, `new`, `skip`, `path`, `warn`, `crit`,
+  `ansi_escape`, `nocolor()`.
+- Dead imports: `itertools`, `re`, `ALL_MODES`, `DEBUG_MODES`, `Iterable`.
+- `Approval` special case in `suite_type_to_class_name()`.
 
-**Empty subclass removal** (classes that are trivial pass-throughs after
-Phase 1 removed their `run()` / `junit_tests()` overrides):
+**What was removed from subclass files:**
 
-9. **Remove `TopologyTestSuite`/`TopologyTest`** in `topology.py` -- empty
-   subclasses that add nothing over `PythonTestSuite`/`PythonTest`.  Change
-   `test/cluster/test_config.yaml` from `type: Topology` to `type: Python`.
-10. **Remove `CQLApprovalTestSuite`** in `cql_approval.py` -- only adds
-    `test_file_ext = ".cql"`.  Remove `test_file_ext` from `PythonTestSuite`
-    as well (no longer needed without the subclass override).  Change
-    `test/cql/test_config.yaml` from `type: Approval` to `type: Python`.
-    Remove the `Approval` special case from `suite_type_to_class_name()`.
+- All `pattern` property overrides: `PythonTestSuite`, `CQLApprovalTestSuite`.
+- All `print_summary()` methods: `PythonTest`.
+- `PythonTestSuite.scylla_env` (set in `__init__`, never read outside).
+- `TopologyTest.status` type annotation (never set or read).
+- Orphaned `from scripts import coverage` import in `python.py`
+  (only used by removed `scylla_env` block).
+- `read_log` import from `python.py`.
+- `PythonTest._prepare_pytest_params()` method and `self.xmlout` attribute.
+- `PythonTestSuite.test_file_ext` class attribute.
+- `PythonTest.server_log` attribute.
 
-**Dead method and attribute removal** (shared code that becomes dead once
-`run()` and its callees are removed):
+**Empty subclass removal:**
 
-11. **Remove `PythonTest._prepare_pytest_params()`** -- only called from
-    `run_ctx()` which builds `self.args` itself; `run_ctx()` signature changes
-    from `run_ctx(options)` to `run_ctx()`.  Also remove `self.xmlout` and
-    `self.args` from `PythonTest.__init__`.
-12. **Remove `Test.allure_dir`** -- only consumed by deleted
-    `_prepare_pytest_params()`.
-13. **Remove `PythonTest.server_log`** -- set in `run_ctx()` but never read
-    after `print_summary()` was removed.
+- `TopologyTestSuite`/`TopologyTest` in `topology.py` — empty pass-through
+  subclasses.  File deleted.  `test/cluster/test_config.yaml` changed from
+  `type: Topology` to `type: Python`.
+- `CQLApprovalTestSuite` in `cql_approval.py` — only added
+  `test_file_ext = ".cql"`.  File deleted.  `test/cql/test_config.yaml`
+  changed from `type: Approval` to `type: Python`.
 
-**Runner cleanup** (options that existed only for test.py → pytest
-communication):
+**Runner cleanup:**
 
-14. **Remove `--scylla-log-filename`** option from `runner.py` -- only passed
-    by test.py's legacy pipeline via `_prepare_pytest_params()`.
-15. **Remove `print_scylla_log_filename`** autouse fixture from `runner.py`
-    -- depends on `--scylla-log-filename`.
+- `--scylla-log-filename` option removed from `runner.py`.
+- `print_scylla_log_filename` autouse fixture removed from `runner.py`.
+
+**`run_ctx()` signature change:**
+
+- `run_ctx(options)` → `run_ctx()`: the `options` parameter was only needed
+  by `_prepare_pytest_params()`.  Callers in `test/cqlpy/conftest.py` and
+  `test/scylla_gdb/conftest.py` updated.  `self.args.insert()` calls for
+  `--host` and `--scylla-log-filename` removed from `run_ctx()` body.
 
 ### Phase 5: Documentation and Cleanup
 
@@ -451,7 +455,7 @@ communication):
 | Phase 1: Dead code removal | ✅ Done | Very low (no behavioral change) |
 | Phase 2: Runner self-sufficiency | ✅ Done | Low (removed guards, changed scope condition) |
 | Phase 3: Simplify test.py | ✅ Done | Low (thin wrapper preserved for CI) |
-| Phase 4: Suite framework cleanup | 1-2 days | Low |
+| Phase 4: Suite framework cleanup | ✅ Done | Low (removed dead code from 6 source files) |
 | Phase 5: Documentation | 1 day | None |
 | **Total** | **7-11 days** | |
 

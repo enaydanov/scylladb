@@ -153,29 +153,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption('--repeat', action="store", default="1", type=int,
                      help="number of times to repeat test execution")
 
-    # Pass information about Scylla node from test.py to pytest.
-    parser.addoption("--scylla-log-filename",
-                     help="Path to a log file of a ScyllaDB node (for suites with type: Python)")
     parser.addoption('--exe-path', default=False,
                      dest="exe_path", action="store",
                      help="Path to the executable to run. Not working with `mode`")
     parser.addoption('--exe-url', default=False,
                      dest="exe_url", action="store",
                      help="URL to download the relocatable executable. Not working with `mode`")
-
-@pytest.fixture(autouse=True)
-def print_scylla_log_filename(request: pytest.FixtureRequest) -> Generator[None]:
-    """Print out a path to a ScyllaDB log.
-
-    This is a fixture for Python test suites, because they are using a single node clusters created inside test.py,
-    but it is handy to have this information printed to a pytest log.
-    """
-
-    yield
-
-    if scylla_log_filename := request.config.getoption("--scylla-log-filename"):
-        logger.info("ScyllaDB log file: %s", scylla_log_filename)
-
 
 def testpy_test_fixture_scope(fixture_name: str, config: pytest.Config) -> _pytest.scope._ScopeName:
     """Dynamic scope for fixtures which rely on a current test.py suite/test.

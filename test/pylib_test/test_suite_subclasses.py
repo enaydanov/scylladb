@@ -17,6 +17,7 @@ from test.pylib.suite.base import TestSuite
 
 
 # ===================================================================
+
 # PythonTest.run_ctx()
 # ===================================================================
 
@@ -84,7 +85,7 @@ class TestPythonTestRunCtx:
         pool = self._mock_pool(cluster)
         test.suite.clusters = pool
 
-        async with test.run_ctx(mock_options) as yielded_cluster:
+        async with test.run_ctx() as yielded_cluster:
             test.success = True
 
         assert yielded_cluster is cluster
@@ -95,20 +96,6 @@ class TestPythonTestRunCtx:
         pool.put.assert_awaited_once_with(cluster, is_dirty=False)
 
     @pytest.mark.asyncio
-    async def test_run_ctx_sets_host_and_log_args(self, tmp_path, mock_options):
-        """After entering run_ctx, --host and --scylla-log-filename are in args."""
-        test = self._make_test(tmp_path, mock_options)
-        cluster = self._mock_cluster()
-        pool = self._mock_pool(cluster)
-        test.suite.clusters = pool
-
-        async with test.run_ctx(mock_options):
-            assert test.server_address == "192.168.1.1"
-            assert "--host=192.168.1.1" in test.args
-            assert "--scylla-log-filename=/tmp/scylla.log" in test.args
-            test.success = True
-
-    @pytest.mark.asyncio
     async def test_run_ctx_dirty_cluster(self, tmp_path, mock_options):
         """When test is in dirties_cluster, cluster is returned as dirty."""
         test = self._make_test(tmp_path, mock_options, shortname="test_foo")
@@ -117,7 +104,7 @@ class TestPythonTestRunCtx:
         pool = self._mock_pool(cluster)
         test.suite.clusters = pool
 
-        async with test.run_ctx(mock_options):
+        async with test.run_ctx():
             test.success = True
 
         assert cluster.is_dirty is True
@@ -132,7 +119,7 @@ class TestPythonTestRunCtx:
         test.suite.clusters = pool
 
         with pytest.raises(RuntimeError, match="boom"):
-            async with test.run_ctx(mock_options):
+            async with test.run_ctx():
                 test.success = True  # would be set by caller normally
                 raise RuntimeError("boom")
 
@@ -150,7 +137,7 @@ class TestPythonTestRunCtx:
         test.suite.clusters = pool
 
         with pytest.raises(RuntimeError, match="start failed"):
-            async with test.run_ctx(mock_options):
+            async with test.run_ctx():
                 pass  # pragma: no cover — never reached
 
         assert test.is_before_test_ok is False
@@ -168,7 +155,7 @@ class TestPythonTestRunCtx:
         test.suite.clusters = pool
         cc = cluster.running[0].control_connection
 
-        async with test.run_ctx(mock_options):
+        async with test.run_ctx():
             test.success = True
 
         assert cc.execute.call_count == 2
@@ -187,7 +174,7 @@ class TestPythonTestRunCtx:
         test.suite.clusters = pool
         cc = cluster.running[0].control_connection
 
-        async with test.run_ctx(mock_options):
+        async with test.run_ctx():
             test.success = True
 
         cc.execute.assert_not_called()

@@ -126,7 +126,6 @@ Registers the following options:
 | `--extra-scylla-cmdline-options` | `str` | `""` | Extra Scylla CLI options |
 | `--x-log2-compaction-groups` | `int` | `0` | Compaction group count |
 | `--repeat` | `int` | `1` | Repeat count |
-| `--scylla-log-filename` | `str` | `None` | Scylla node log path |
 | `--exe-path` | `str` | `False` | Custom executable path |
 | `--exe-url` | `str` | `False` | Executable download URL |
 
@@ -388,17 +387,6 @@ def scylla_binary(testpy_test) -> Path
 ```
 
 Returns `testpy_test.suite.scylla_exe`.
-
-### 9.6 `print_scylla_log_filename` (autouse)
-
-```python
-@pytest.fixture(autouse=True)
-def print_scylla_log_filename(request) -> Generator[None]
-```
-
-Yields control to the test, then after the test, logs the `--scylla-log-filename`
-option value (if set) at INFO level. Provides visibility into Scylla logs for
-Python test suites.
 
 ---
 

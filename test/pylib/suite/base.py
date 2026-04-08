@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import argparse
 import collections
-import itertools
 import logging
 import os
 import pathlib
-import re
 import shutil
 import sys
 import time
@@ -24,7 +22,7 @@ import colorama
 import universalasync
 import yaml
 
-from test import ALL_MODES, DEBUG_MODES, TEST_DIR, TEST_RUNNER
+from test import TEST_DIR, TEST_RUNNER
 from test.pylib.artifact_registry import ArtifactRegistry
 from test.pylib.host_registry import HostRegistry
 from test.pylib.ldap_server import start_ldap
@@ -35,7 +33,7 @@ from test.pylib.s3_server_mock import MockS3Server
 from test.pylib.util import LogPrefixAdapter, get_xdist_worker_id
 from test.pylib.scylla_cluster import get_scylla_executable
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable
     from typing import Any, List
 
 
@@ -58,20 +56,10 @@ def create_formatter(*decorators) -> Callable[[Any], str]:
 
 class palette:
     """Color palette for formatting terminal output"""
-    ok = create_formatter(colorama.Fore.GREEN, colorama.Style.BRIGHT)
     fail = create_formatter(colorama.Fore.RED, colorama.Style.BRIGHT)
-    new = create_formatter(colorama.Fore.BLUE)
-    skip = create_formatter(colorama.Style.DIM)
-    path = create_formatter(colorama.Style.BRIGHT)
     diff_in = create_formatter(colorama.Fore.GREEN)
     diff_out = create_formatter(colorama.Fore.RED)
     diff_mark = create_formatter(colorama.Fore.MAGENTA)
-    warn = create_formatter(colorama.Fore.YELLOW)
-    crit = create_formatter(colorama.Fore.RED, colorama.Style.BRIGHT)
-    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    @staticmethod
-    def nocolor(text: str) -> str:
-        return palette.ansi_escape.sub('', text)
 
 
 class TestSuite(ABC):
@@ -96,33 +84,6 @@ class TestSuite(ABC):
         self.mode = mode
         self.suite_key = os.path.join(path, mode)
         self.tests: List['Test'] = []
-        self.pending_test_count = 0
-        # The number of failed tests
-        self.n_failed = 0
-
-        self.run_first_tests = set(cfg.get("run_first", []))
-        self.no_parallel_cases = set(cfg.get("no_parallel_cases", []))
-        # Skip tests disabled in suite.yaml
-        self.disabled_tests = set(self.cfg.get("disable", []))
-        # Skip tests disabled in specific mode.
-        self.disabled_tests.update(self.cfg.get("skip_in_" + mode, []))
-        self.flaky_tests = set(self.cfg.get("flaky", []))
-        # If this mode is one of the debug modes, and there are
-        # tests disabled in a debug mode, add these tests to the skip list.
-        if mode in DEBUG_MODES:
-            self.disabled_tests.update(self.cfg.get("skip_in_debug_modes", []))
-        # If a test is listed in run_in_<mode>, it should only be enabled in
-        # this mode. Tests not listed in any run_in_<mode> directive should
-        # run in all modes. Inversing this, we should disable all tests
-        # which are listed explicitly in some run_in_<m> where m != mode
-        # This of course may create ambiguity with skip_* settings,
-        # since the priority of the two is undefined, but oh well.
-        run_in_m = set(self.cfg.get("run_in_" + mode, []))
-        for a in ALL_MODES:
-            if a == mode:
-                continue
-            skip_in_m = set(self.cfg.get("run_in_" + a, []))
-            self.disabled_tests.update(skip_in_m - run_in_m)
         # environment variables that should be the base of all processes running in this suit
         self.base_env = {}
         if self.need_coverage():
@@ -150,9 +111,6 @@ class TestSuite(ABC):
             TestSuite._next_id[test_key] += 1
         return TestSuite._next_id[test_key]
 
-    @staticmethod
-    def test_count() -> int:
-        return sum(TestSuite._next_id.values())
 
     @staticmethod
     def load_cfg(path: pathlib.Path) -> dict:
@@ -176,11 +134,7 @@ class TestSuite(ABC):
                 raise RuntimeError("Failed to load tests in {}: test_config.yaml has no suite type".format(path))
 
             def suite_type_to_class_name(suite_type: str) -> str:
-                if suite_type.casefold() == "Approval".casefold():
-                    suite_type = "CQLApproval"
-                else:
-                    suite_type = suite_type.title()
-                return suite_type + "TestSuite"
+                return suite_type.title() + "TestSuite"
 
             SpecificTestSuite = getattr(import_module("test.pylib.suite"), suite_type_to_class_name(kind), None)
             if not SpecificTestSuite:
@@ -190,15 +144,6 @@ class TestSuite(ABC):
             TestSuite.suites[suite_key] = suite
         return suite
 
-    @staticmethod
-    def all_tests() -> Iterable['Test']:
-        return itertools.chain(*(suite.tests for suite in
-                                 TestSuite.suites.values()))
-
-    @property
-    @abstractmethod
-    def pattern(self) -> str:
-        pass
 
     @abstractmethod
     async def add_test(self, shortname: str, casename: str | None) -> None:
@@ -222,38 +167,14 @@ class Test:
         self.shortname = shortname
         self.mode = suite.mode
         self.suite = suite
-        self.allure_dir = self.suite.log_dir / 'allure'
         # Unique file name, which is also readable by human, as filename prefix
         self.uname = f"{self.suite.name}.{self.shortname.replace('/', '_')}.{self.id}"
         if xdist_worker_id := get_xdist_worker_id():
             self.uname = f"{xdist_worker_id}.{self.uname}"
         self.log_filename = self.suite.log_dir / f"{self.uname}.log"
-        self.is_flaky = self.shortname in suite.flaky_tests
-        # True if the test was retried after it failed
-        self.is_flaky_failure = False
-        # True if the test was cancelled by a ctrl-c or timeout, so
-        # shouldn't be retried, even if it is flaky
-        self.is_cancelled = False
-        self.env = dict(self.suite.base_env)
-        self.started = False
         self.success = False
         self.time_start: float = 0
         self.time_end: float = 0
-
-    @property
-    def failed(self):
-        """Returns True, if this test Failed"""
-        return self.started and not self.success and not self.is_cancelled
-
-    @property
-    def did_not_run(self):
-        """Returns True, if this test did not run correctly, i.e. was canceled either during or before execution"""
-        return not self.started or self.is_cancelled
-
-    @abstractmethod
-    def print_summary(self) -> None:
-        pass
-
 
 
 def init_testsuite_globals() -> None:
@@ -261,18 +182,6 @@ def init_testsuite_globals() -> None:
 
     TestSuite.artifacts = ArtifactRegistry()
     TestSuite.hosts = HostRegistry()
-
-
-def read_log(log_filename: pathlib.Path) -> str:
-    """Intelligently read test log output"""
-    try:
-        with log_filename.open("r") as log:
-            msg = log.read()
-            return msg if len(msg) else "===Empty log output==="
-    except FileNotFoundError:
-        return "===Log {} not found===".format(log_filename)
-    except OSError as e:
-        return "===Error reading log {}===".format(e)
 
 
 def prepare_dir(dirname: pathlib.Path, pattern: str, save_log_on_success: bool) -> None:

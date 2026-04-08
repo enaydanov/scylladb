@@ -149,7 +149,7 @@ the expected `.result` file, enabling diff-based debugging.
 
 ### Relationship to CQL Approval Suite
 
-The `CQLApprovalTestSuite` (see [test-suite-design.md](test-suite-design.md)
+The `PythonTestSuite` (see [test-suite-design.md](test-suite-design.md)
 Section 6.2) provides the suite-level configuration:
 - `test_file_ext = ".cql"` -- test file extension
 - `pattern = "*_test.cql"` -- discovery pattern
@@ -174,7 +174,7 @@ cql fixture (from cqlpy)
     |-- CQL session connected to Scylla
     v
 output_path fixture (autouse)
-    |-- get_testpy_test() --> CQLApprovalTestSuite instance
+    |-- get_testpy_test() --> PythonTestSuite instance
     |-- provides reject file path in suite log_dir
     v
 CQL test execution

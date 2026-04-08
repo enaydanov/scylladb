@@ -4,11 +4,10 @@ This document inventories all code that is reachable **only** from `test.py`'s
 legacy execution pipeline and became dead code once the legacy pipeline was
 removed.
 
-> **Phase 1 status:** The legacy execution pipeline (the `TestSuite.run()` →
-> `Test.run()` → `run_test()` chain) was removed in Phase 1.  Items marked
-> ✅ REMOVED below were deleted.  Items marked 🔄 REMAINING are still in the
-> codebase, either because they are shared with the pytest path or because they
-> are part of later migration phases.
+> **Phase 1-4 status:** The legacy execution pipeline was removed in Phase 1.
+> Dead code from the suite framework was cleaned up in Phase 4.  Items marked
+> ✅ REMOVED below have been deleted.  Items marked 🔄 REMAINING are still in
+> the codebase because they are shared with the pytest path.
 
 ## Critical Finding: The Legacy Pipeline Already Executes Zero Tests
 
@@ -79,11 +78,11 @@ Each symbol was classified as:
 | `_next_id` | SHARED | 🔄 REMAINING | Used by `next_id()` and `test_count()` |
 | `__init__()` | SHARED | 🔄 REMAINING | Called by all subclass constructors via `opt_create()` |
 | `next_id()` | SHARED | 🔄 REMAINING | Called from subclass `add_test()` methods |
-| `test_count()` | LEGACY-ONLY | 🔄 REMAINING | Zero callers remain — Phase 1 removed all `test.py` call sites. Dead code. |
+| `test_count()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — zero callers remained |
 | `load_cfg()` | SHARED | 🔄 REMAINING | Called by `opt_create()` |
 | `opt_create()` | SHARED | 🔄 REMAINING | Called from `runner.py` via `get_testpy_test()` and from `test.py` |
-| `all_tests()` | LEGACY-ONLY | 🔄 REMAINING | Only called from `test.py`; deferred to Phase 3 |
-| `pattern` (abstract property) | LEGACY-ONLY | 🔄 REMAINING | Only consumed by removed `build_test_list()`; required by ABC contract. Deferred to Phase 4 |
+| `all_tests()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — callers removed in Phase 3 |
+| `pattern` (abstract property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — only consumed by deleted `build_test_list()` |
 | `add_test()` (abstract) | SHARED | 🔄 REMAINING | Called from `get_testpy_test()` (both) and previously from `add_test_list()` (legacy, now removed) |
 | `run()` | LEGACY-ONLY | ✅ REMOVED | Only called from `test.py` |
 | `junit_tests()` | ALREADY-DEAD | ✅ REMOVED | No callers found anywhere |
@@ -98,10 +97,10 @@ Each symbol was classified as:
 |--------------------|----------|--------|---------------|
 | `__init__()` | SHARED | 🔄 REMAINING | Called by all test subclass constructors |
 | `reset()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` |
-| `failed` (property) | LEGACY-ONLY | 🔄 REMAINING | Zero callers remain — Phase 1 removed the `failed_tests` collection in `test.py`. Dead code. |
-| `did_not_run` (property) | LEGACY-ONLY | 🔄 REMAINING | Zero callers remain — Phase 1 removed the `cancelled_tests` collection in `test.py`. Dead code. |
+| `failed` (property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — zero callers remained |
+| `did_not_run` (property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — zero callers remained |
 | `run()` (abstract) | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` |
-| `print_summary()` (abstract) | LEGACY-ONLY | 🔄 REMAINING | Only called from `test.py`; kept because it is an `@abstractmethod` and all subclasses are instantiated via `get_testpy_test()` — removing the abstract method would break the class hierarchy. Deferred to Phase 4 |
+| `print_summary()` (abstract) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — abstract constraint lifted, all subclass implementations also removed |
 | `setup()` | ALREADY-DEAD | ✅ REMOVED | No callers found anywhere |
 | `check_log()` | INTERNAL-LEGACY | ✅ REMOVED | Only called from `run_test()` |
 
@@ -110,7 +109,7 @@ Each symbol was classified as:
 | Function | Category | Status | Justification |
 |----------|----------|--------|---------------|
 | `init_testsuite_globals()` | SHARED | 🔄 REMAINING | Called from `runner.py` and `test.py` |
-| `read_log()` | INTERNAL-LEGACY | 🔄 REMAINING | Called from `PythonTest.print_summary()`; kept because `print_summary()` is kept (see above) |
+| `read_log()` | INTERNAL-LEGACY | ✅ REMOVED | Removed in Phase 4 — all callers (`print_summary()` methods) also removed |
 | `run_test()` | LEGACY-ONLY | ✅ REMOVED | Only called from `Test.run()` implementations; 112 lines, the largest single block of dead code removed |
 | `prepare_dir()` | INTERNAL-SHARED | 🔄 REMAINING | Called by `prepare_dirs()` |
 | `prepare_environment()` | SHARED | 🔄 REMAINING | Called from `runner.py` and `test.py` |
@@ -138,9 +137,9 @@ Each symbol was classified as:
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
 | `__init__()` | SHARED | 🔄 REMAINING | Called from `PythonTestSuite.add_test()` |
-| `_prepare_pytest_params()` | LEGACY-ONLY | 🔄 REMAINING | Called only from `run_ctx()` which will be refactored to build args directly; planned for removal in Phase 4 |
+| `_prepare_pytest_params()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — only called from `run_ctx()` which now builds args directly |
 | `reset()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` chain |
-| `print_summary()` | LEGACY-ONLY | ✅ REMOVED | Only called from `test.py:548` |
+| `print_summary()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — abstract constraint lifted |
 | `run_ctx()` | SHARED | 🔄 REMAINING | Called from `test/cqlpy/conftest.py` and `test/scylla_gdb/conftest.py`; manages cluster lifecycle (lease from pool, before_test/after_test, teardown) |
 | `run()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` chain |
 
@@ -160,13 +159,12 @@ Each symbol was classified as:
 
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
-| `test_file_ext` | LEGACY-ONLY | 🔄 REMAINING | Only needed to distinguish `.cql` files from `.py`; planned for removal in Phase 4 with the entire class |
-| `pattern` (property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 1 — abstract constraint lifted |
+| `test_file_ext` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 with the entire CQLApprovalTestSuite class |
+| `pattern` (property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — abstract constraint lifted |
 
-`CQLApprovalTestSuite` is an empty subclass that only overrides
-`test_file_ext`.  After Phase 1 removes the legacy pipeline, nothing in
-the pytest path requires the `Approval` → `CQLApproval` class dispatch.
-The entire class and file are planned for removal in Phase 4.
+`CQLApprovalTestSuite` was an empty subclass that only overrode
+`test_file_ext`.  The entire class and file were removed in Phase 4.
+`test/cql/test_config.yaml` changed from `type: Approval` to `type: Python`.
 
 ---
 
@@ -176,20 +174,18 @@ The entire class and file are planned for removal in Phase 4.
 
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
-| `add_test()` | LEGACY-ONLY | 🔄 REMAINING | After Phase 1 removes `run()`, `add_test()` is a pass-through to `PythonTestSuite.add_test()` |
+| `add_test()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — empty pass-through to `PythonTestSuite.add_test()` |
 | `junit_tests()` | LEGACY-ONLY | ✅ REMOVED | Overrode base method that had no callers |
 
 ### `TopologyTest` Class
 
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
-| `__init__()` | LEGACY-ONLY | 🔄 REMAINING | After Phase 1, this is a pass-through to `PythonTest.__init__()` |
+| `__init__()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — empty pass-through to `PythonTest.__init__()` |
 | `run()` | LEGACY-ONLY | ✅ REMOVED | Only called from `TestSuite.run()` chain |
 
-Both classes are empty pass-throughs after Phase 1 removes `run()` and
-`junit_tests()`.  They add nothing over `PythonTestSuite`/`PythonTest`.
-The entire file is planned for removal in Phase 4, with
-`test/cluster/test_config.yaml` changing from `type: Topology` to
+Both classes were empty pass-throughs.  The entire file was removed in
+Phase 4.  `test/cluster/test_config.yaml` changed from `type: Topology` to
 `type: Python`.
 
 ---
@@ -268,8 +264,8 @@ re-export was removed.
 | Code Block | Category | Status | Justification |
 |------------|----------|--------|---------------|
 | `--test-py-init` option | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 2; `TESTPY_PREPARED_ENVIRONMENT` is sufficient |
-| `--scylla-log-filename` option | LEGACY-ONLY | 🔄 REMAINING | Only meaningful under test.py; planned for removal in Phase 4 |
-| `print_scylla_log_filename` fixture | LEGACY-ONLY | 🔄 REMAINING | Depends on `--scylla-log-filename`; planned for removal in Phase 4 |
+| `--scylla-log-filename` option | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 |
+| `print_scylla_log_filename` fixture | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 |
 | `testpy_test_fixture_scope()` | SHARED | 🔄 REMAINING | Condition changed in Phase 2 from `--test-py-init` to `TEST_RUNNER`; function kept because runpy needs `"session"` scope |
 | `testpy_test` fixture | SHARED (simplifiable) | 🔄 REMAINING | Deferred to Phase 2 |
 | `scylla_binary` fixture | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |

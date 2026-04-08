@@ -36,15 +36,13 @@ Key characteristics:
 - **Cluster pooling**: Python-based test suites maintain a pool of reusable
   ScyllaDB cluster instances to amortize startup cost.
 
-The framework lives in 5 files under `test/pylib/suite/`:
+The framework lives in 3 files under `test/pylib/suite/`:
 
 | File               | Contents                                                |
 |--------------------|---------------------------------------------------------|
-| `__init__.py`      | Re-exports concrete suite classes                       |
-| `base.py`          | `TestSuite` (ABC), `Test` (ABC), module-level utilities |
+| `__init__.py`      | Re-exports `PythonTestSuite`                            |
+| `base.py`          | `TestSuite` (ABC), `Test`, module-level utilities       |
 | `python.py`        | `PythonTestSuite`, `PythonTest`                         |
-| `cql_approval.py`  | `CQLApprovalTestSuite`                                  |
-| `topology.py`      | `TopologyTestSuite`, `TopologyTest`                     |
 
 ---
 
@@ -55,25 +53,19 @@ The framework lives in 5 files under `test/pylib/suite/`:
 ```
 TestSuite (ABC)                       base.py
   |
-  +-- PythonTestSuite                 python.py   (intermediate base)
-  |     |
-  |     +-- CQLApprovalTestSuite      cql_approval.py
-  |     +-- TopologyTestSuite         topology.py
+  +-- PythonTestSuite                 python.py
 
 
-Test (abstract, not ABC)              base.py
+Test                                  base.py
   |
-  +-- PythonTest                      python.py   (intermediate base)
-  |     |
-  |     +-- TopologyTest              topology.py
+  +-- PythonTest                      python.py
 ```
 
-`PythonTestSuite` and `PythonTest` are the key intermediate base classes, shared
-by `CQLApprovalTestSuite`, `TopologyTestSuite`, and `TopologyTest`.
+`PythonTestSuite` and `PythonTest` are the only concrete classes.
 
-The `ToolTestSuite`/`ToolTest` and `RunTestSuite`/`RunTest` classes have been
-deleted — all directories that previously used `type: Tool` or `type: Run`
-now use `type: Python`.
+The `ToolTestSuite`/`ToolTest`, `RunTestSuite`/`RunTest`,
+`CQLApprovalTestSuite`, and `TopologyTestSuite`/`TopologyTest` classes have
+been deleted — all directories now use `type: Python`.
 
 ### 2.2 Factory Pattern
 
@@ -81,10 +73,9 @@ Suite instantiation is never done directly by callers. Instead,
 `TestSuite.opt_create(config, options, mode)` acts as the single factory:
 
 1. Loads `test_config.yaml` via `load_cfg()`.
-2. Reads `cfg["type"]` (e.g. `"Python"`, `"Topology"`, `"Approval"`).
+2. Reads `cfg["type"]` (e.g. `"Python"`).
 3. Converts the type string to a class name via `suite_type_to_class_name()`:
-   - Special case: `"Approval"` (case-insensitive) maps to `"CQLApprovalTestSuite"`.
-   - All others: `type.title() + "TestSuite"` (e.g. `"Python"` -> `"PythonTestSuite"`).
+   `type.title() + "TestSuite"` (e.g. `"Python"` -> `"PythonTestSuite"`).
 4. Dynamically imports the class from the `test.pylib.suite` package
    using `getattr(import_module("test.pylib.suite"), class_name)`.
 5. Instantiates it and caches it in `TestSuite.suites` (a class-level dict keyed
@@ -93,14 +84,8 @@ Suite instantiation is never done directly by callers. Instead,
 
 ### 2.3 Package Initialization
 
-`test/pylib/suite/__init__.py` re-exports all 5 concrete classes so the dynamic
-import in `opt_create()` can resolve them:
-
-- `CQLApprovalTestSuite`
-- `PythonTestSuite`
-- `RunTestSuite`
-- `ToolTestSuite`
-- `TopologyTestSuite`
+`test/pylib/suite/__init__.py` re-exports `PythonTestSuite` so the dynamic
+import in `opt_create()` can resolve it.
 
 ---
 
@@ -114,7 +99,7 @@ config.
 
 | Key | Type | Default | Consumed By | Description |
 |-----|------|---------|-------------|-------------|
-| `type` | `string` | (required) | `TestSuite.opt_create()` | Suite class selector. Values: `Python`, `Topology`, `Approval`. |
+| `type` | `string` | (required) | `TestSuite.opt_create()` | Suite class selector. Currently only `Python` is used. |
 | `disable` | `list[string]` | `[]` | `TestSuite.__init__` | Test shortnames to unconditionally disable. |
 | `skip_in_<mode>` | `list[string]` | `[]` | `TestSuite.__init__` | Tests to skip in a specific build mode. `<mode>` is one of `debug`, `release`, `dev`, `sanitize`, `coverage`. |
 | `skip_in_debug_modes` | `list[string]` | `[]` | `TestSuite.__init__` | Tests to skip in all debug modes (as defined by the `DEBUG_MODES` constant). |
@@ -133,7 +118,7 @@ config.
 
 ### 3.2 Disabled-Test Resolution Algorithm
 
-The constructor computes `disabled_tests` as the union of:
+The `TestSuiteConfig` class in `runner.py` computes `disabled_tests` as the union of:
 
 1. All tests in `cfg["disable"]`.
 2. All tests in `cfg["skip_in_<current_mode>"]`.
@@ -177,18 +162,9 @@ Sets the following instance state:
 | `mode` | Build mode string |
 | `suite_key` | `os.path.join(path, mode)` |
 | `tests` | Empty list, populated later by `add_test()` |
-| `pending_test_count` | `0`, incremented as tests are added |
-| `n_failed` | `0`, incremented as tests fail |
-| `run_first_tests` | Set from `cfg["run_first"]` |
-| `no_parallel_cases` | Set from `cfg["no_parallel_cases"]` |
-| `disabled_tests` | Computed via the algorithm in Section 3.2 |
-| `flaky_tests` | Set from `cfg["flaky"]` |
 | `base_env` | Base environment dict. If coverage is needed, adds `LLVM_PROFILE_FILE`. |
 
 ### 4.3 Abstract Interface
-
-**`pattern`** (read-only property): must return a glob pattern string or a list
-of glob pattern strings for discovering test files within the suite directory.
 
 **`add_test(shortname: str, casename: str | None)`** (async): must create a `Test`
 subclass instance and append it to `self.tests`.
@@ -200,17 +176,11 @@ If `options.run_id` is set (pytest mode), uses that fixed value. Otherwise
 increments the per-key counter. This ensures repeated runs of the same test
 (via `--repeat`) get distinct IDs for result differentiation.
 
-**`test_count() -> int`** (static): returns the total count of all test IDs
-generated across all suites.
-
 **`load_cfg(path: Path) -> dict`** (static): loads a YAML file, validates it
 produces a dict, and returns it. Raises `RuntimeError` if parsing fails.
 
 **`opt_create(config, options, mode) -> TestSuite`** (static): factory method
 described in Section 2.2.
-
-**`all_tests() -> Iterable[Test]`** (static): chains all tests from all
-registered suites into a single iterable.
 
 **`need_coverage() -> bool`**: returns `True` if coverage is enabled in options,
 the current mode is in the coverage modes, and the suite config does not set
@@ -221,8 +191,6 @@ the current mode is in the coverage modes, and the suite config does not set
 ## 5. Test Base Class Contract
 
 **Location:** `base.py`
-**Note:** Uses `@abstractmethod` decorators but does not inherit from `ABC`.
-Enforcement relies on subclass discipline.
 
 ### 5.1 Constructor
 
@@ -243,25 +211,9 @@ Sets the following instance state:
 | `allure_dir` | `suite.log_dir / "allure"` |
 | `uname` | Unique name: `"suite.shortname.id"` (with `/` replaced by `_`). If running under xdist, prefixed with the worker ID. |
 | `log_filename` | `suite.log_dir / "{uname}.log"` |
-| `is_flaky` | Whether `shortname` is in `suite.flaky_tests` |
-| `is_flaky_failure` | `False` (set to `True` when retried after flaky failure) |
-| `is_cancelled` | `False` (set to `True` on ctrl-c or timeout) |
-| `env` | Copy of `suite.base_env` |
-| `started` | `False` |
 | `success` | `False` |
 | `time_start` | `0` |
 | `time_end` | `0` |
-
-### 5.2 Abstract Interface
-
-**`print_summary()`**: must print human-readable test results to stdout.
-
-### 5.3 Concrete Methods
-
-**`failed`** (property): `True` if the test was started, did not succeed, and was
-not cancelled.
-
-**`did_not_run`** (property): `True` if the test was never started or was cancelled.
 
 ---
 
@@ -280,10 +232,6 @@ Beyond the base class, the constructor initializes:
 
 - **`scylla_exe`**: path to the Scylla executable for the current mode, resolved
   via `path_to(mode, "scylla")`.
-- **`scylla_env`**: environment dict for Scylla processes. Starts as a copy of
-  `base_env`. If the mode is `"coverage"`, adds coverage-specific environment
-  variables via `scripts.coverage.env()`. Always sets `SCYLLA` to the executable
-  path.
 - **`dirties_cluster`**: set of test shortnames from `cfg["dirties_cluster"]`.
   Tests in this set cause their cluster to be marked dirty after execution.
 - **`create_cluster`**: an async factory function returned by `get_cluster_factory()`.
@@ -325,8 +273,6 @@ Returns an async `create_cluster` function that:
 
 #### Overridden Methods
 
-- **`pattern`**: returns `["*_test.py", "*_tests.py", "test_*.py"]` (three
-  naming conventions).
 - **`add_test(shortname, casename)`**: creates a `PythonTest` with ID key
   `(shortname, self.suite_key)`.
 
@@ -336,44 +282,6 @@ Returns an async `create_cluster` function that:
   file argument path.
 
 ---
-
-### 6.2 CQLApprovalTestSuite
-
-**Location:** `cql_approval.py`
-**Inherits from:** `PythonTestSuite`
-**Role:** Runs CQL approval/comparison tests (`.cql` files) against a single
-Scylla instance.
-
-This is the most minimal subclass. It overrides only two things:
-
-- **`test_file_ext`**: `".cql"` (overriding `".py"` from `PythonTestSuite`).
-- **`pattern`**: returns `"*_test.cql"` (using the `CQL_TEST_SUFFIX` constant
-  imported from `test.pylib.cql_repl`).
-
-It inherits `add_test()` from `PythonTestSuite`, so it creates `PythonTest`
-instances (not a CQL-specific test class). The `test_file_ext` attribute is what
-tells `PythonTest._prepare_pytest_params()` to look for `.cql` files instead of
-`.py` files.
-
----
-
-### 6.3 TopologyTestSuite
-
-**Location:** `topology.py`
-**Inherits from:** `PythonTestSuite`
-**Role:** Runs topology change tests that use a cluster manager for full lifecycle
-control.
-
-Has no constructor of its own -- inherits `PythonTestSuite.__init__` entirely,
-including cluster pool, scylla executable, and coverage env setup.
-
-#### Overridden Methods
-
-- **`add_test(shortname, casename)`**: creates a `TopologyTest` (not `PythonTest`).
-  Note: narrows the `casename` parameter type from `str | None` (base class) to `str`.
-  Uses a different ID key tuple: `(shortname, 'topology', self.mode)` instead of
-  `(shortname, self.suite_key)`. This means topology test IDs are shared across
-  suite paths but unique per mode.
 
 ---
 
@@ -389,68 +297,36 @@ Scylla cluster.
 
 #### Constructor Additions
 
-- **`path`**: set to `"python"` (the Python interpreter).
 - **`core_args`**: set to `["-m", "pytest"]` (invoke pytest as a module).
 - **`casename`**: optional case name within the test file (from `::` syntax).
-- **`xmlout`**: path for JUnit XML output: `suite.log_dir / "xml" / "{uname}.xunit.xml"`.
 - **`server_address`**: `None` initially; set to the cluster endpoint before test
   execution.
-- **`server_log`** / **`server_log_filename`**: `None` initially.
-  Only `server_log_filename` is populated from the cluster during `run_ctx()`;
-  `server_log` is never assigned a non-None value.
+- **`server_log_filename`**: `None` initially; populated from the cluster during
+  `run_ctx()`.
 - **`is_before_test_ok`** / **`is_after_test_ok`**: `False`; lifecycle flags to
   distinguish pre-test failures from test failures from post-test failures.
 
 #### Key Methods
 
-**`_prepare_pytest_params(options)`**: builds the comprehensive pytest command-line
-argument list. Includes:
-- `-s` (no output capture), `--log-level=DEBUG`, `-vv` (verbose)
-- JUnit XML output config (`junit_family=xunit2`, `junit_suite_name`, `--junit-xml`)
-- `-rs` (show reasons for skipped tests)
-- `--run_id`, `--mode`, `--tmpdir`
-- `--gather-metrics` (if enabled)
-- `--alluredir` and `--allure-no-capture` / `--save-log-on-success`
-- `-m=<markers>` (if set). When markers are active, exit code 5 (no tests
-  selected) is also treated as valid.
-- `--pytest_arg` (additional user-specified pytest arguments, shell-split)
-- The test file path, constructed as `suite_path / shortname + suite.test_file_ext`.
-  If `casename` is set, appends `::casename`.
-
-**`run_ctx(options)`** (async context manager): the setup/teardown lifecycle
+**`run_ctx()`** (async context manager): the setup/teardown lifecycle
 for a pool-based test:
 
-1. Calls `_prepare_pytest_params()`.
-2. Leases a cluster from `suite.clusters` pool via `await pool.get(logger)`.
-3. Calls `cluster.before_test(uname)`.
-4. If `prepare_cql` is configured and not yet executed for this cluster, runs
+1. Leases a cluster from `suite.clusters` pool via `await pool.get(logger)`.
+2. Calls `cluster.before_test(uname)`.
+3. If `prepare_cql` is configured and not yet executed for this cluster, runs
    the CQL statements via the first server's control connection. Marks
    `cluster.prepare_cql_executed` so they are not re-run.
-5. Sets `server_address` to `cluster.endpoint()` and inserts `--host` and
-   `--scylla-log-filename` arguments at the front of the args list.
-6. Takes a log savepoint on the cluster.
-7. Yields to the test body.
-8. After the test: if the shortname is in `dirties_cluster`, marks the cluster
+4. Sets `server_address` to `cluster.endpoint()` and `server_log_filename`
+   from the cluster.
+5. Takes a log savepoint on the cluster.
+6. Yields to the test body.
+7. After the test: if the shortname is in `dirties_cluster`, marks the cluster
    dirty. Calls `cluster.after_test(uname, success)`.
-9. On exception during setup or teardown: marks cluster dirty, logs diagnostic
+8. On exception during setup or teardown: marks cluster dirty, logs diagnostic
    info about whether the failure was pre-test or post-test.
-10. In `finally`: returns the cluster to the pool via `pool.put(cluster, is_dirty)`.
-
-**`print_summary()`**: prints the test command and output log. If `server_log`
-is set (non-None), also prints the first server's log.
+9. In `finally`: returns the cluster to the pool via `pool.put(cluster, is_dirty)`.
 
 ---
-
-### 7.2 TopologyTest
-
-**Location:** `topology.py`
-**Inherits from:** `PythonTest`
-**Role:** Runs topology tests using a cluster manager instead of the shared pool.
-
-Has a `status: bool` type annotation at class level (not initialized in
-constructor).
-
-The constructor simply delegates to `super().__init__()`.
 
 ---
 
@@ -522,33 +398,16 @@ ANSI color codes if stdout is a TTY, or returns a plain string otherwise.
 
 | Attribute | Color/Style |
 |-----------|-------------|
-| `ok` | Green, bright |
 | `fail` | Red, bright |
-| `new` | Blue |
-| `skip` | Dim |
-| `path` | Bright |
 | `diff_in` | Green |
 | `diff_out` | Red |
 | `diff_mark` | Magenta |
-| `warn` | Yellow |
-| `crit` | Red, bright |
-
-Also provides `nocolor(text)` static method that strips ANSI escape codes using
-a compiled regex.
 
 The formatters are created by `create_formatter(*decorators)`, a factory function
 that returns either a colorizing function or a plain `str()` wrapper depending on
 whether stdout is a TTY.
 
-### 8.6 Log Reading (`read_log`)
-
-**Signature:** `read_log(log_filename: pathlib.Path) -> str`
-
-Reads a log file and returns its contents. Returns descriptive placeholder strings
-if the file is not found (`"===Log {path} not found==="`), empty
-(`"===Empty log output==="`), or unreadable due to OS errors.
-
-### 8.7 Module Constants
+### 8.6 Module Constants
 
 | Constant | Value | Description |
 |----------|-------|-------------|
@@ -564,12 +423,11 @@ if the file is not found (`"===Log {path} not found==="`), empty
 
 The `test.py` script at the repository root is the CI entry point for running tests.
 
-`test.py` is a thin wrapper around `run_pytest()`:
+`test.py` is a thin compatibility wrapper that delegates to `runner.py`:
 
-1. Parses arguments.
-2. Initializes suite globals and prepares the environment.
-3. Calls `run_pytest()` via `run_all_tests()`.
-4. Prints summary and handles coverage.
+1. Parses arguments (forwarding unknown args to pytest).
+2. Calls `run_pytest()` which invokes pytest with `runner.py` as its plugin.
+3. Returns the pytest exit code.
 
 ### 9.2 Pytest Plugin (`test/pylib/runner.py`)
 
@@ -758,10 +616,10 @@ No `suite.yaml` files currently exist in the project -- the migration to
 
 ### 11.3 Summary of Suite Characteristics
 
-| Suite Class | Pattern | Test Class | Has Scylla Exe | Has Cluster Pool | Gentle Kill |
-|-------------|---------|------------|----------------|------------------|-------------|
-| `PythonTestSuite` | `*_test.py`, `*_tests.py`, `test_*.py` | `PythonTest` | Yes | Yes | No |
-| `CQLApprovalTestSuite` | `*_test.cql` | `PythonTest` | Yes (inherited) | Yes (inherited) | No |
-| `TopologyTestSuite` | (inherited from Python) | `TopologyTest` | Yes (inherited) | Yes (inherited, used by manager) | No |
-| `ToolTestSuite` | `*_test.py`, `test_*.py` | `ToolTest` | No | No | No |
-| `RunTestSuite` | `run` | `RunTest` | Yes | No | Yes |
+| Suite Class | Test Class | Has Scylla Exe | Has Cluster Pool | Gentle Kill |
+|-------------|------------|----------------|------------------|-------------|
+| `PythonTestSuite` | `PythonTest` | Yes | Yes | No |
+| `CQLApprovalTestSuite` | `PythonTest` | Yes (inherited) | Yes (inherited) | No |
+| `TopologyTestSuite` | `TopologyTest` | Yes (inherited) | Yes (inherited, used by manager) | No |
+| `ToolTestSuite` | `ToolTest` | No | No | No |
+| `RunTestSuite` | `RunTest` | Yes | No | Yes |

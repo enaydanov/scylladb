@@ -289,28 +289,3 @@ class TestResourceWatcher:
             pytest_sessionstart(session)
         mock_start.assert_not_called()
 
-
-# ===================================================================
-# --scylla-log-filename and print_scylla_log_filename — dead code
-# ===================================================================
-
-
-class TestScyllaLogFilenameOption:
-    """Characterization tests for --scylla-log-filename option.
-
-    This option is registered by runner.py but only meaningful when
-    test.py passes the log path via _prepare_pytest_params().  With the
-    legacy pipeline removed, this option has no callers.  Slated for
-    Phase 4 removal.
-    """
-
-    def test_option_registered(self, pytestconfig):
-        """The --scylla-log-filename option is registered in runner.py."""
-        # The option exists and can be retrieved (even if None)
-        value = pytestconfig.getoption("--scylla-log-filename")
-        assert value is None  # default is None
-
-    def test_print_scylla_log_filename_fixture_exists(self):
-        """The print_scylla_log_filename function is importable from runner."""
-        from test.pylib.runner import print_scylla_log_filename
-        assert callable(print_scylla_log_filename)
