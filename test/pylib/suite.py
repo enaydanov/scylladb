@@ -11,12 +11,10 @@ import collections
 import logging
 import os
 import pathlib
-import sys
 from contextlib import asynccontextmanager
 from functools import cached_property
 from typing import TYPE_CHECKING
 
-import colorama
 from test import path_to
 from test.pylib.pool import Pool
 from test.pylib.scylla_cluster import ScyllaCluster
@@ -24,34 +22,11 @@ from test.pylib.util import LogPrefixAdapter, get_xdist_worker_id
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-    from typing import Any, Callable
 
     from test.pylib.artifact_registry import ArtifactRegistry
     from test.pylib.host_registry import HostRegistry
     from test.pylib.runner import TestSuiteConfig
 
-
-
-output_is_a_tty = sys.stdout.isatty()
-
-
-def create_formatter(*decorators) -> Callable[[Any], str]:
-    """Return a function which decorates its argument with the given
-    color/style if stdout is a tty, and leaves intact otherwise."""
-    def color(arg: Any) -> str:
-        return "".join(decorators) + str(arg) + colorama.Style.RESET_ALL
-
-    def nocolor(arg: Any) -> str:
-        return str(arg)
-    return color if output_is_a_tty else nocolor
-
-
-class palette:
-    """Color palette for formatting terminal output"""
-    fail = create_formatter(colorama.Fore.RED, colorama.Style.BRIGHT)
-    diff_in = create_formatter(colorama.Fore.GREEN)
-    diff_out = create_formatter(colorama.Fore.RED)
-    diff_mark = create_formatter(colorama.Fore.MAGENTA)
 
 
 class TestSuite:

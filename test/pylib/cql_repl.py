@@ -23,7 +23,7 @@ from cassandra import ConsistencyLevel
 from cassandra.query import SimpleStatement
 from tabulate import tabulate
 
-from test.pylib.suite import palette
+from test.pylib.terminal import palette
 
 if TYPE_CHECKING:
     from pathlib import Path

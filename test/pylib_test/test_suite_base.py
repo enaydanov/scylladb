@@ -20,9 +20,8 @@ import pytest
 from test.pylib.suite import (
     TestSuite,
     Test,
-    create_formatter,
-    palette,
 )
+from test.pylib.terminal import create_formatter, palette
 from test.pylib.runner import prepare_dir
 
 
@@ -36,13 +35,13 @@ class TestCreateFormatter:
 
     def test_nocolor_when_not_tty(self):
         """When output_is_a_tty is False, formatter returns plain str."""
-        with patch("test.pylib.suite.output_is_a_tty", False):
+        with patch("test.pylib.terminal.output_is_a_tty", False):
             fmt = create_formatter("\033[32m")
             assert fmt("hello") == "hello"
 
     def test_color_when_tty(self):
         """When output_is_a_tty is True, formatter wraps with ANSI codes."""
-        with patch("test.pylib.suite.output_is_a_tty", True):
+        with patch("test.pylib.terminal.output_is_a_tty", True):
             fmt = create_formatter("\033[32m")
             result = fmt("hello")
             assert "hello" in result

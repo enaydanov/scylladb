@@ -62,9 +62,9 @@ Each symbol was classified as:
 | `SUITE_CONFIG_FILENAME` | SHARED | ✅ REMOVED | Was imported by `runner.py` and `test.py`; since no `suite.yaml` exists, every reference was a dead lookup |
 | `TEST_CONFIG_FILENAME` | SHARED | ✅ REMOVED | Moved to `runner.py` (sole consumer after `load_cfg()` deletion) |
 | `PYTEST_TESTS_LOGS_FOLDER` | SHARED | 🔄 REMAINING | Imported by `runner.py` and used in `prepare_dirs()` |
-| `output_is_a_tty` | SHARED | 🔄 REMAINING | Used by `create_formatter()` / `palette`, which are imported by `test/pylib/cql_repl.py` (pytest path) and `test.py` |
-| `create_formatter()` | SHARED | 🔄 REMAINING | Used by `palette` class, imported by `test/pylib/cql_repl.py` (pytest) and `test.py` |
-| `palette` class | SHARED | 🔄 REMAINING | Imported by `test.py` and `test/pylib/cql_repl.py` |
+| `output_is_a_tty` | SHARED | ✅ MOVED | Moved to `test/pylib/terminal.py` |
+| `create_formatter()` | SHARED | ✅ MOVED | Moved to `test/pylib/terminal.py` |
+| `palette` class | SHARED | ✅ MOVED | Moved to `test/pylib/terminal.py` |
 | `toxiproxy_id_gen` | ALREADY-DEAD | ✅ REMOVED | Unused global — no references anywhere |
 
 ### `TestSuite` Class
@@ -75,9 +75,9 @@ Each symbol was classified as:
 | `artifacts` (class attr) | SHARED | 🔄 REMAINING | Set by `init_testsuite_globals()`; used by `runner.py` and `test.py` |
 | `hosts` (class attr) | SHARED | 🔄 REMAINING | Set by `init_testsuite_globals()`; used by `runner.py` and `test.py` |
 | `FLAKY_RETRIES` | LEGACY-ONLY | ✅ REMOVED | Only used in `TestSuite.run()` |
-| `_next_id` | SHARED | 🔄 REMAINING | Used by `next_id()` and `test_count()` |
+| `_next_id` | SHARED | ✅ REMOVED | Removed — `run_id` is now passed directly to `Test.__init__()` from the pytest stash |
 | `__init__()` | SHARED | 🔄 REMAINING | Called by all subclass constructors via `opt_create()` |
-| `next_id()` | SHARED | 🔄 REMAINING | Called from subclass `add_test()` methods |
+| `next_id()` | SHARED | ✅ REMOVED | Removed — `run_id` is passed directly to `Test.__init__()` |
 | `test_count()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — zero callers remained |
 | `load_cfg()` | SHARED | ✅ REMOVED | Deleted — `opt_create()` now takes `TestSuiteConfig` (already-parsed YAML) |
 | `opt_create()` | SHARED | 🔄 REMAINING | Called from `runner.py`'s `testpy_test` fixture with a `TestSuiteConfig` argument |
