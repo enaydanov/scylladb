@@ -93,7 +93,6 @@ config.
 | `dirties_cluster` | `list[string]` | `[]` | `TestSuite.__init__` | Tests that leave the cluster in a dirty state (requiring recycle). |
 | `extra_scylla_cmdline_options` | `list[string]` or `string` | `[]` | `TestSuite.create_cluster()` → `ScyllaCluster.add_server()` | Additional Scylla command-line flags. Merged with test-level and CLI-level options. |
 | `extra_scylla_config_options` | `mapping` | `{}` | `TestSuite.create_cluster()` → `ScyllaCluster.add_server()` | Additional Scylla config file options. Merged with defaults and test-level config. |
-| `prepare_cql` | `string` or `list[string]` | `null` | `Test.run_ctx()` | CQL statements to execute once per cluster before tests run. |
 | `custom_args` | `mapping[string, list[string]]` | `{}` | (Boost/unit suites, outside this framework) | Per-test custom arguments. Not consumed by the Python suite classes. |
 
 ### 3.2 Disabled-Test Resolution Algorithm
@@ -209,17 +208,14 @@ for a pool-based test:
 
 1. Leases a cluster from `suite.clusters` pool via `await pool.get(logger)`.
 2. Calls `cluster.before_test(uname)`.
-3. If `prepare_cql` is configured and not yet executed for this cluster, runs
-   the CQL statements via the first server's control connection. Marks
-   `cluster.prepare_cql_executed` so they are not re-run.
-4. Takes a log savepoint on the cluster.
-5. Yields the cluster to the test body.
-6. After the test: sets `success = True`, checks if the shortname is in
+3. Takes a log savepoint on the cluster.
+4. Yields the cluster to the test body.
+5. After the test: sets `success = True`, checks if the shortname is in
    `dirties_cluster` (marks the cluster dirty if so), and calls
    `cluster.after_test(uname, success)`.
-8. On exception during setup or teardown: marks cluster dirty, logs diagnostic
+6. On exception during setup or teardown: marks cluster dirty, logs diagnostic
    info about whether the failure was pre-test or post-test.
-9. In `finally`: returns the cluster to the pool via `pool.put(cluster, is_dirty)`.
+7. In `finally`: returns the cluster to the pool via `pool.put(cluster, is_dirty)`.
 
 ---
 
@@ -414,7 +410,6 @@ suite.clusters  (first access triggers @cached_property)
        |   |   new ScyllaCluster
        |   v
        | cluster.before_test(uname)
-       | execute prepare_cql (once per cluster)
        | record log filename
        | take log savepoint
        |

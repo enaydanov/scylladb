@@ -106,6 +106,7 @@ Each symbol was classified as:
 | `print_summary()` (abstract) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — abstract constraint lifted, all subclass implementations also removed |
 | `setup()` | ALREADY-DEAD | ✅ REMOVED | No callers found anywhere |
 | `check_log()` | INTERNAL-LEGACY | ✅ REMOVED | Only called from `run_test()` |
+| `prepare_cql` support in `run_ctx()` | ALREADY-DEAD | ✅ REMOVED | No `test_config.yaml` has a `prepare_cql` key; last usage removed from `test/alternator/suite.yaml` in May 2024 |
 
 ### Module-Level Functions
 

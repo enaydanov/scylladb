@@ -42,29 +42,11 @@ class TestRunCtx:
         return Test(shortname, suite, run_id=1)
 
     def _mock_cluster(self):
-        """Create a mock cluster with the interface run_ctx() expects.
-
-        Uses a spec class so that hasattr() behaves realistically —
-        MagicMock without spec auto-creates every attribute, which
-        would defeat the ``not hasattr(cluster, 'prepare_cql_executed')``
-        guard in run_ctx().
-        """
-        class _ClusterSpec:
-            endpoint = None
-            server_log_filename = None
-            is_dirty = False
-            running = {}
-            before_test = None
-            after_test = None
-            take_log_savepoint = None
-
-        cluster = MagicMock(spec=_ClusterSpec)
+        """Create a mock cluster with the interface run_ctx() expects."""
+        cluster = MagicMock()
         cluster.endpoint.return_value = "192.168.1.1"
         cluster.server_log_filename.return_value = "/tmp/scylla.log"
         cluster.is_dirty = False
-        # prepare_cql needs cluster.running with a control_connection
-        mock_server = MagicMock()
-        cluster.running = {0: mock_server}
         return cluster
 
     def _mock_pool(self, cluster):
@@ -137,36 +119,3 @@ class TestRunCtx:
         assert cluster.is_dirty is True
         pool.put.assert_awaited_once_with(cluster, is_dirty=True)
 
-    @pytest.mark.asyncio
-    async def test_run_ctx_prepare_cql_executes_statements(self, tmp_path, mock_options):
-        """When suite cfg has prepare_cql, statements are executed on control_connection."""
-        cfg = {"prepare_cql": ["CREATE KEYSPACE ks", "USE ks"]}
-        test = self._make_test(tmp_path, mock_options, cfg=cfg)
-        cluster = self._mock_cluster()
-        pool = self._mock_pool(cluster)
-        test.suite.clusters = pool
-        cc = cluster.running[0].control_connection
-
-        async with test.run_ctx():
-            pass
-
-        assert cc.execute.call_count == 2
-        cc.execute.assert_any_call("CREATE KEYSPACE ks")
-        cc.execute.assert_any_call("USE ks")
-        assert cluster.prepare_cql_executed is True
-
-    @pytest.mark.asyncio
-    async def test_run_ctx_prepare_cql_runs_once(self, tmp_path, mock_options):
-        """Second call to run_ctx skips prepare_cql if already executed."""
-        cfg = {"prepare_cql": ["CREATE KEYSPACE ks"]}
-        test = self._make_test(tmp_path, mock_options, cfg=cfg)
-        cluster = self._mock_cluster()
-        cluster.prepare_cql_executed = True  # simulate prior execution
-        pool = self._mock_pool(cluster)
-        test.suite.clusters = pool
-        cc = cluster.running[0].control_connection
-
-        async with test.run_ctx():
-            pass
-
-        cc.execute.assert_not_called()

@@ -248,7 +248,6 @@ host fixture
     |   YES: async with testpy_test.run_ctx(options)
     |          |-- lease cluster from TestSuite.clusters pool
     |          |-- cluster.before_test(uname)
-    |          |-- execute prepare_cql (once per cluster)
     |          |-- yield cluster.endpoint()
     |          |-- cluster.after_test(uname, success)
     |          |-- return cluster to pool

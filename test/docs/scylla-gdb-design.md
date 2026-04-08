@@ -56,7 +56,7 @@ Provides a running Scylla server instance:
 2. The context manager yields a `cluster` object.
 3. Yields the first server from `cluster.running.values()` via `next(iter(...))`.
 
-The `run_ctx()` call manages the full cluster lifecycle: before_test, prepare_cql,
+The `run_ctx()` call manages the full cluster lifecycle: before_test,
 log savepoint, and after_test on teardown.
 
 Type annotation: `testpy_test: PythonTest | None`.
@@ -140,7 +140,6 @@ scylla_server fixture
     | testpy_test.run_ctx(options)
     |   |-- lease cluster from PythonTestSuite.clusters pool
     |   |-- cluster.before_test(uname)
-    |   |-- execute prepare_cql (once per cluster)
     |   |-- yield cluster
     |   v
     | cluster.running.values()

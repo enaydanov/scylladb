@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import argparse
-import collections
 import logging
 import os
 import pathlib
@@ -160,14 +159,6 @@ class Test:
         try:
             cluster = await self.suite.clusters.get(logger)
             cluster.before_test(self.uname)
-            prepare_cql = self.suite.cfg.get("prepare_cql", None)
-            if prepare_cql and not hasattr(cluster, 'prepare_cql_executed'):
-                cc = next(iter(cluster.running.values())).control_connection
-                if not isinstance(prepare_cql, collections.abc.Iterable):
-                    prepare_cql = [prepare_cql]
-                for stmt in prepare_cql:
-                    cc.execute(stmt)
-                cluster.prepare_cql_executed = True
             logger.info("Leasing Scylla cluster %s for test %s", cluster, self.uname)
             server_log_filename = cluster.server_log_filename()
             is_before_test_ok = True
