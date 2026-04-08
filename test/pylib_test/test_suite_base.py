@@ -165,8 +165,7 @@ class TestOptCreate:
         return suite_config
 
     @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
-    @patch("test.pylib.suite.Pool")
-    def test_creates_suite(self, _pool, _path_to, mock_options, tmp_path):
+    def test_creates_suite(self, _path_to, mock_options, tmp_path):
         """opt_create returns a TestSuite instance for a valid config."""
         suite_dir = tmp_path / "suite_py"
         suite_dir.mkdir()
@@ -175,8 +174,7 @@ class TestOptCreate:
         assert isinstance(suite, TestSuite)
 
     @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
-    @patch("test.pylib.suite.Pool")
-    def test_caching(self, _pool, _path_to, mock_options, tmp_path):
+    def test_caching(self, _path_to, mock_options, tmp_path):
         """Second call with same path+mode returns cached instance."""
         suite_dir = tmp_path / "suite_cache"
         suite_dir.mkdir()
@@ -290,10 +288,7 @@ def _make_python_suite(path: str, cfg: dict, options, mode: str):
     from unittest.mock import patch as _patch
     
     pathlib.Path(path).mkdir(parents=True, exist_ok=True)
-    with (
-        _patch("test.pylib.suite.path_to", return_value="/dummy/scylla"),
-        _patch("test.pylib.suite.Pool"),
-    ):
+    with _patch("test.pylib.suite.path_to", return_value="/dummy/scylla"):
         return TestSuite(path, cfg, options, mode)
 
 

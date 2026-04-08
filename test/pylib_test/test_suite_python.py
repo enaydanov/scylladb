@@ -16,12 +16,12 @@ from test.pylib.suite import TestSuite
 
 
 # ===================================================================
-# PythonTestSuite.__init__ — pool_size resolution
+# TestSuite.clusters — pool_size resolution via @cached_property
 # ===================================================================
 
 
 class TestPoolSize:
-    """Tests for the 4-tier pool_size priority in TestSuite.__init__."""
+    """Tests for the 4-tier pool_size priority in TestSuite.clusters."""
 
     def _make(
         self,
@@ -49,6 +49,8 @@ class TestPoolSize:
             patch.dict(os.environ, env, clear=False),
         ):
             suite = TestSuite(str(suite_dir), cfg, mock_options, mode)
+            # Trigger the @cached_property to construct the Pool
+            _ = suite.clusters
             # Extract pool_size passed to Pool constructor
             pool_size_arg = MockPool.call_args[0][0]
             return suite, pool_size_arg
@@ -79,4 +81,3 @@ class TestPoolSize:
         """options.cluster_pool_size overrides YAML even without env."""
         _, size = self._make(tmp_path, mock_options, cfg_pool=5, opt_pool=3)
         assert size == 3
-

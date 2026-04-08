@@ -13,17 +13,18 @@ import os
 import pathlib
 import sys
 from contextlib import asynccontextmanager
+from functools import cached_property
 from typing import TYPE_CHECKING
 
 import colorama
 from test import path_to
 from test.pylib.pool import Pool
-from test.pylib.scylla_cluster import ScyllaCluster, ScyllaServer, merge_cmdline_options, get_current_version_description
+from test.pylib.scylla_cluster import ScyllaCluster
 from test.pylib.util import LogPrefixAdapter, get_xdist_worker_id
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Awaitable, Callable
-    from typing import Any, Union
+    from collections.abc import AsyncGenerator
+    from typing import Any, Callable
 
     from test.pylib.artifact_registry import ArtifactRegistry
     from test.pylib.host_registry import HostRegistry
@@ -85,37 +86,7 @@ class TestSuite:
             self.base_env["LLVM_PROFILE_FILE"] = str(self.log_dir / "coverage" / self.name / "%m.profraw")
 
         self.scylla_exe = path_to(self.mode, "scylla")
-
-        cluster_cfg = self.cfg.get("cluster", {"initial_size": 1})
-        cluster_size = cluster_cfg["initial_size"]
-        env_pool_size = os.getenv("CLUSTER_POOL_SIZE")
-        if options.cluster_pool_size is not None:
-            pool_size = options.cluster_pool_size
-        elif env_pool_size is not None:
-            pool_size = int(env_pool_size)
-        else:
-            pool_size = cfg.get("pool_size", 2)
         self.dirties_cluster = set(cfg.get("dirties_cluster", []))
-
-        self.create_cluster = self.get_cluster_factory(cluster_size, options)
-        async def recycle_cluster(cluster: ScyllaCluster) -> None:
-            """When a dirty cluster is returned to the cluster pool,
-               stop it and release the used IPs. We don't necessarily uninstall() it yet,
-               which would delete the log file and directory - we might want to preserve
-               these if it came from a failed test.
-            """
-            for srv in cluster.servers.values():
-                if srv.log_file is not None:
-                    srv.log_file.close()
-                srv.maintenance_socket_dir.cleanup()
-            await cluster.stop()
-            # Close API client to release connector resources
-            if cluster.api is not None:
-                cluster.api.close()
-                cluster.api = None
-            await cluster.release_ips()
-
-        self.clusters = Pool(pool_size, self.create_cluster, recycle_cluster)
 
 
     # Generate a unique ID for `--repeat`ed tests
@@ -148,75 +119,53 @@ class TestSuite:
             TestSuite.suites[suite_key] = suite
         return suite
 
-    def get_cluster_factory(self, cluster_size: int, options: argparse.Namespace) -> Callable[..., Awaitable]:
-        def create_server(create_cfg: ScyllaCluster.CreateServerParams):
-            cmdline_options = self.cfg.get("extra_scylla_cmdline_options", [])
-            if type(cmdline_options) == str:
-                cmdline_options = [cmdline_options]
-            cmdline_options = merge_cmdline_options(cmdline_options, create_cfg.cmdline_from_test)
-            # There are multiple sources of config options, with increasing priority
-            # (if two sources provide the same config option, the higher priority one wins):
-            # 1. the defaults
-            # 2. suite-specific config options (in "extra_scylla_config_options")
-            # 3. config options from tests (when servers are added during a test)
-            default_config_options = \
-                {"authenticator": "PasswordAuthenticator",
-                 "authorizer": "CassandraAuthorizer"}
-            default_config_options["tablets_initial_scale_factor"] = 4 if self.mode == "release" else 2
-            config_options = default_config_options | \
-                             self.cfg.get("extra_scylla_config_options", {}) | \
-                             create_cfg.config_from_test
+    @cached_property
+    def clusters(self) -> Pool:
+        env_pool_size = os.getenv("CLUSTER_POOL_SIZE")
+        if self.options.cluster_pool_size is not None:
+            pool_size = self.options.cluster_pool_size
+        elif env_pool_size is not None:
+            pool_size = int(env_pool_size)
+        else:
+            pool_size = self.cfg.get("pool_size", 2)
+        return Pool(pool_size, self.create_cluster, lambda cluster: cluster.recycle())
 
-            server = ScyllaServer(
-                mode=self.mode,
-                version=(create_cfg.version or get_current_version_description(self.scylla_exe)),
-                vardir=self.log_dir,
-                logger=create_cfg.logger,
-                cluster_name=create_cfg.cluster_name,
-                ip_addr=create_cfg.ip_addr,
-                seeds=create_cfg.seeds,
-                cmdline_options=cmdline_options,
-                config_options=config_options,
-                property_file=create_cfg.property_file,
-                append_env=self.base_env,
-                server_encryption=create_cfg.server_encryption)
+    async def create_cluster(self, logger: logging.Logger | logging.LoggerAdapter) -> ScyllaCluster:
+        cluster = ScyllaCluster(
+            logger=logger,
+            vardir=self.log_dir,
+            host_registry=self.hosts,
+            replicas=self.cfg.get("cluster", {"initial_size": 1})["initial_size"],
+            mode=self.mode,
+            cmdline_options=self.cfg.get("extra_scylla_cmdline_options", []),
+            cmdline_options_override=self.options.extra_scylla_cmdline_options,
+            config_options=self.cfg.get("extra_scylla_config_options", {}),
+            append_env=self.base_env,
+            scylla_exe=self.scylla_exe,
+        )
 
-            return server
+        # Suite artifacts are removed when the entire suite ends successfully.
+        self.artifacts.add_suite_artifact(self, cluster.stop)
+        if not self.options.save_log_on_success:
+            # If a test fails, we might want to keep the data dirs.
+            self.artifacts.add_suite_artifact(self, cluster.uninstall)
+        self.artifacts.add_exit_artifact(self, cluster.stop)
 
-        async def create_cluster(logger: Union[logging.Logger, logging.LoggerAdapter]) -> ScyllaCluster:
-            cluster = ScyllaCluster(logger, self.hosts, cluster_size, create_server)
-
-            async def stop() -> None:
+        await cluster.install_and_start()
+        # If cluster failed to start, raise the exception immediately
+        # so the pool doesn't return a broken cluster to tests
+        if cluster.start_exception is not None:
+            # Clean up the broken cluster before raising
+            try:
                 await cluster.stop()
-
-            # Suite artifacts are removed when
-            # the entire suite ends successfully.
-            self.artifacts.add_suite_artifact(self, stop)
-            if not self.options.save_log_on_success:
-                # If a test fails, we might want to keep the data dirs.
-                async def uninstall() -> None:
-                    await cluster.uninstall()
-
-                self.artifacts.add_suite_artifact(self, uninstall)
-            self.artifacts.add_exit_artifact(self, stop)
-
-            await cluster.install_and_start()
-            # If cluster failed to start, raise the exception immediately
-            # so the pool doesn't return a broken cluster to tests
-            if cluster.start_exception is not None:
-                # Clean up the broken cluster before raising
-                try:
-                    await cluster.stop()
-                    if cluster.api is not None:
-                        await cluster.api.close()
-                        cluster.api = None
-                    await cluster.release_ips()
-                except:
-                    pass  # Ignore cleanup errors
-                raise cluster.start_exception
-            return cluster
-
-        return create_cluster
+                if cluster.api is not None:
+                    cluster.api.close()
+                    cluster.api = None
+                await cluster.release_ips()
+            except:
+                pass  # Ignore cleanup errors
+            raise cluster.start_exception
+        return cluster
 
 
     def need_coverage(self):

@@ -90,8 +90,8 @@ config.
 | `cluster` | `mapping` | `{"initial_size": 1}` | `TestSuite.__init__` | Cluster configuration. Sub-key `initial_size` controls the number of nodes. |
 | `pool_size` | `int` | `2` | `TestSuite.__init__` | Number of clusters in the reuse pool. Overridden by CLI `--cluster-pool-size` or env `CLUSTER_POOL_SIZE`. |
 | `dirties_cluster` | `list[string]` | `[]` | `TestSuite.__init__` | Tests that leave the cluster in a dirty state (requiring recycle). |
-| `extra_scylla_cmdline_options` | `list[string]` or `string` | `[]` | `TestSuite.get_cluster_factory()` | Additional Scylla command-line flags. Merged with test-level and CLI-level options. |
-| `extra_scylla_config_options` | `mapping` | `{}` | `TestSuite.get_cluster_factory()` | Additional Scylla config file options. Merged with defaults and test-level config. |
+| `extra_scylla_cmdline_options` | `list[string]` or `string` | `[]` | `TestSuite.create_cluster()` → `ScyllaCluster.add_server()` | Additional Scylla command-line flags. Merged with test-level and CLI-level options. |
+| `extra_scylla_config_options` | `mapping` | `{}` | `TestSuite.create_cluster()` → `ScyllaCluster.add_server()` | Additional Scylla config file options. Merged with defaults and test-level config. |
 | `prepare_cql` | `string` or `list[string]` | `null` | `Test.run_ctx()` | CQL statements to execute once per cluster before tests run. |
 | `custom_args` | `mapping[string, list[string]]` | `{}` | (Boost/unit suites, outside this framework) | Per-test custom arguments. Not consumed by the Python suite classes. |
 
@@ -142,20 +142,8 @@ Sets the following instance state:
 | `base_env` | Base environment dict. If coverage is needed, adds `LLVM_PROFILE_FILE`. |
 | `scylla_exe` | Path to the Scylla executable for the current mode, resolved via `path_to(mode, "scylla")`. |
 | `dirties_cluster` | Set of test shortnames from `cfg["dirties_cluster"]`. Tests in this set cause their cluster to be marked dirty after execution. |
-| `create_cluster` | An async factory function returned by `get_cluster_factory()`. |
-| `clusters` | A `Pool` instance parameterized with `pool_size`, the `create_cluster` factory, and a recycler function. |
 
-The **cluster pool size** is resolved with the following priority:
-1. `options.cluster_pool_size` (CLI flag)
-2. `CLUSTER_POOL_SIZE` environment variable
-3. `cfg["pool_size"]`
-4. Default: `2`
-
-The **recycler function** for dirty clusters:
-- Closes log files and cleans up maintenance socket directories for each server.
-- Stops the cluster.
-- Closes the API client and releases its connector resources.
-- Releases all leased IPs back to the host registry.
+Note: `clusters` is a `@cached_property` (see Section 4.4), not set in `__init__`.
 
 ### 4.3 Concrete Methods
 
@@ -172,24 +160,31 @@ a raw file path, eliminating double YAML reads.
 the current mode is in the coverage modes, and the suite config does not set
 `coverage: false`.
 
-### 4.4 Cluster Factory (`get_cluster_factory`)
+### 4.4 Cluster Pool and Creation
 
-Returns an async `create_cluster` function that:
+**`clusters`** (`@cached_property` → `Pool`): lazily creates the cluster pool
+on first access. The **pool size** is resolved with the following priority:
+1. `options.cluster_pool_size` (CLI flag)
+2. `CLUSTER_POOL_SIZE` environment variable
+3. `cfg["pool_size"]`
+4. Default: `2`
 
-1. Defines a `create_server` inner function that constructs a `ScyllaServer` with
-   merged options from three sources (increasing priority):
-   - Default config options (`PasswordAuthenticator`, `CassandraAuthorizer`,
-     `tablets_initial_scale_factor` of 4 for release / 2 otherwise).
-   - Suite-level config from `extra_scylla_config_options`.
-   - Test-level config (passed via `CreateServerParams`).
-   - Command-line options are merged from suite config (which already includes
-     CLI `--extra-scylla-cmdline-options`, merged once by `TestSuiteConfig`) and
-     test params.
-2. Creates a `ScyllaCluster` with the host registry and initial cluster size.
-3. Registers `stop` as both a suite artifact and an exit artifact.
-4. If `save_log_on_success` is false, also registers `uninstall` as a suite artifact.
-5. Calls `install_and_start()` on the cluster.
-6. If the cluster fails to start, cleans up (stop, close API, release IPs) and
+The pool's recycle callback delegates to `ScyllaCluster.recycle()`, which:
+- Closes log files and cleans up maintenance socket directories for each server.
+- Stops the cluster.
+- Releases all leased IPs back to the host registry.
+
+**`create_cluster(logger)`** (async method): the pool's build callback:
+
+1. Creates a `ScyllaCluster` with the suite's config (host registry, initial
+   cluster size, mode, command-line options, config options, environment).
+   Server creation logic (command-line merging, config assembly, `ScyllaServer`
+   construction) lives in `ScyllaCluster.add_server()`.
+2. Registers `cluster.stop` as both a suite artifact and an exit artifact.
+3. If `save_log_on_success` is false, also registers `cluster.uninstall` as a
+   suite artifact.
+4. Calls `install_and_start()` on the cluster.
+5. If the cluster fails to start, cleans up (stop, close API, release IPs) and
    raises the start exception immediately, preventing the pool from returning a
    broken cluster.
 
@@ -404,20 +399,22 @@ testpy_test fixture
 ### 8.3 Cluster Lifecycle
 
 ```
-TestSuite.__init__()
+suite.clusters  (first access triggers @cached_property)
        |
-       | Pool(pool_size, create_cluster, recycle_cluster)
+       | Pool(pool_size, suite.create_cluster, cluster.recycle)
        v
    clusters Pool
        |
        | test requests cluster via pool.get(logger)
        |   |
        |   | Pool has available cluster? --> return it
-       |   | Pool empty? --> create_cluster(logger)
+       |   | Pool empty? --> suite.create_cluster(logger)
        |   |   |
-       |   |   | ScyllaCluster(hosts, size, create_server)
+       |   |   | ScyllaCluster(vardir, hosts, replicas, mode, opts...)
        |   |   | register stop/uninstall as artifacts
        |   |   | cluster.install_and_start()
+       |   |   |   --> cluster.add_server() builds ScyllaServer inline
+       |   |   |       (cmdline merging, config assembly, version check)
        |   |   | if start_exception: cleanup + raise
        |   |   v
        |   |   new ScyllaCluster
@@ -433,13 +430,12 @@ TestSuite.__init__()
        | cluster.after_test(uname, success)
        | pool.put(cluster, is_dirty)
        |   |
-       |   | is_dirty? --> recycle_cluster(cluster)
+       |   | is_dirty? --> cluster.recycle()
        |   |   |
-       |   |   | close log files
+       |   |   | close log files + maintenance sockets
        |   |   | cluster.stop()
-       |   |   | close API client
        |   |   | release IPs
-       |   |   | create fresh replacement via create_cluster
+       |   |   | create fresh replacement via suite.create_cluster
        |   |   v
        |   | not dirty? --> return to pool for reuse
        v

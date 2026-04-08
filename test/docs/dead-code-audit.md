@@ -127,7 +127,7 @@ Each symbol was classified as:
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
 | `__init__()` | SHARED | 🔄 REMAINING | Called via `opt_create()` |
-| `get_cluster_factory()` | SHARED | 🔄 REMAINING | Called in `__init__()`; cluster pool used by conftest fixtures. Now in `suite.py` |
+| `get_cluster_factory()` | SHARED | ✅ REMOVED | Replaced by `create_cluster()` method and `@cached_property clusters`. Server creation logic moved to `ScyllaCluster.add_server()`. |
 | `pattern` (property) | SHARED | 🔄 REMAINING | Required abstract property |
 | `add_test()` | SHARED | ✅ REMOVED | Was called from `get_testpy_test()` which has been inlined |
 | `run()` | LEGACY-ONLY | ✅ REMOVED | Override of `TestSuite.run()`, only called from `test.py` |
