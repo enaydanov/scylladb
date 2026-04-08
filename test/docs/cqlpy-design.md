@@ -249,7 +249,7 @@ host fixture
     |          |-- lease cluster from TestSuite.clusters pool
     |          |-- cluster.before_test(uname)
     |          |-- execute prepare_cql (once per cluster)
-    |          |-- yield server_address (cluster endpoint)
+    |          |-- yield cluster.endpoint()
     |          |-- cluster.after_test(uname, success)
     |          |-- return cluster to pool
     |   NO:  yield request.config.getoption("--host")

@@ -249,15 +249,12 @@ class Test:
         if xdist_worker_id := get_xdist_worker_id():
             self.uname = f"{xdist_worker_id}.{self.uname}"
         self.success = False
-        self.server_address: str | None = None
-        self.is_before_test_ok = False
-        self.is_after_test_ok = False
 
     @asynccontextmanager
-    async def run_ctx(self) -> AsyncGenerator[None]:
+    async def run_ctx(self) -> AsyncGenerator[ScyllaCluster]:
         """A test's setup/teardown context manager.
 
-        Leases a ScyllaDB cluster from the pool and sets server_address.
+        Leases a ScyllaDB cluster from the pool and yields it.
         The cluster is returned to the pool after the test finishes.
         If the test fails, the cluster is marked as dirty.
         """
@@ -266,6 +263,8 @@ class Test:
         name = os.path.join(self.suite.name, self.shortname.split('.')[0])
         server_log_filename = None
         cluster = None
+        is_before_test_ok = False
+        is_after_test_ok = False
         try:
             cluster = await self.suite.clusters.get(logger)
             cluster.before_test(self.uname)
@@ -278,22 +277,22 @@ class Test:
                     cc.execute(stmt)
                 cluster.prepare_cql_executed = True
             logger.info("Leasing Scylla cluster %s for test %s", cluster, self.uname)
-            self.server_address = cluster.endpoint()
             server_log_filename = cluster.server_log_filename()
-            self.is_before_test_ok = True
+            is_before_test_ok = True
             cluster.take_log_savepoint()
 
             yield cluster
 
+            self.success = True
             if self.shortname in self.suite.dirties_cluster:
                 cluster.is_dirty = True
             cluster.after_test(self.uname, self.success)
-            self.is_after_test_ok = True
+            is_after_test_ok = True
         except Exception as e:
-            if not self.is_before_test_ok:
+            if not is_before_test_ok:
                 print(f"Test {name} pre-check failed: {str(e)}\ncheck server logs: {server_log_filename}")
                 logger.info(f"Discarding cluster after failed start for test %s...", name)
-            elif not self.is_after_test_ok:
+            elif not is_after_test_ok:
                 print(f"Test {name} post-check failed: {str(e)}\ncheck server logs: {server_log_filename}")
                 logger.info(f"Discarding cluster after failed test %s...", name)
             self.success = False

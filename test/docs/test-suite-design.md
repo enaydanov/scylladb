@@ -213,12 +213,7 @@ Sets the following instance state:
 | `mode` | `suite.mode` |
 | `suite` | Back-reference to parent suite |
 | `uname` | Unique name: `"suite.shortname.id"` (with `/` replaced by `_`). If running under xdist, prefixed with the worker ID. |
-| `success` | `False` |
-| `time_start` | `0` |
-| `time_end` | `0` |
-| `server_address` | `None` initially; set to the cluster endpoint before test execution |
-| `server_log_filename` | `None` initially; populated from the cluster during `run_ctx()` |
-| `is_before_test_ok` / `is_after_test_ok` | `False`; lifecycle flags to distinguish pre-test failures from test failures from post-test failures |
+| `success` | `False`; set to `True` by `run_ctx()` after the test body completes without exception |
 
 ### 5.2 Key Methods
 
@@ -230,12 +225,11 @@ for a pool-based test:
 3. If `prepare_cql` is configured and not yet executed for this cluster, runs
    the CQL statements via the first server's control connection. Marks
    `cluster.prepare_cql_executed` so they are not re-run.
-4. Sets `server_address` to `cluster.endpoint()` and `server_log_filename` to
-   `cluster.server_log_filename()`.
-5. Takes a log savepoint on the cluster.
-6. Yields to the test body.
-7. After the test: if the shortname is in `dirties_cluster`, marks the cluster
-   dirty. Calls `cluster.after_test(uname, success)`.
+4. Takes a log savepoint on the cluster.
+5. Yields the cluster to the test body.
+6. After the test: sets `success = True`, checks if the shortname is in
+   `dirties_cluster` (marks the cluster dirty if so), and calls
+   `cluster.after_test(uname, success)`.
 8. On exception during setup or teardown: marks cluster dirty, logs diagnostic
    info about whether the failure was pre-test or post-test.
 9. In `finally`: returns the cluster to the pool via `pool.put(cluster, is_dirty)`.
@@ -453,7 +447,7 @@ TestSuite.__init__()
        |   v
        | cluster.before_test(uname)
        | execute prepare_cql (once per cluster)
-       | set server_address, log filename
+       | record log filename
        | take log savepoint
        |
        | --- test executes ---

@@ -86,12 +86,10 @@ class TestRunCtx:
         test.suite.clusters = pool
 
         async with test.run_ctx() as yielded_cluster:
-            test.success = True
+            pass
 
         assert yielded_cluster is cluster
         cluster.before_test.assert_called_once_with(test.uname)
-        assert test.is_before_test_ok is True
-        assert test.is_after_test_ok is True
         cluster.after_test.assert_called_once_with(test.uname, True)
         pool.put.assert_awaited_once_with(cluster, is_dirty=False)
 
@@ -105,7 +103,7 @@ class TestRunCtx:
         test.suite.clusters = pool
 
         async with test.run_ctx():
-            test.success = True
+            pass
 
         assert cluster.is_dirty is True
         pool.put.assert_awaited_once_with(cluster, is_dirty=True)
@@ -120,7 +118,6 @@ class TestRunCtx:
 
         with pytest.raises(RuntimeError, match="boom"):
             async with test.run_ctx():
-                test.success = True  # would be set by caller normally
                 raise RuntimeError("boom")
 
         assert test.success is False
@@ -140,7 +137,6 @@ class TestRunCtx:
             async with test.run_ctx():
                 pass  # pragma: no cover — never reached
 
-        assert test.is_before_test_ok is False
         assert test.success is False
         assert cluster.is_dirty is True
         pool.put.assert_awaited_once_with(cluster, is_dirty=True)
@@ -156,7 +152,7 @@ class TestRunCtx:
         cc = cluster.running[0].control_connection
 
         async with test.run_ctx():
-            test.success = True
+            pass
 
         assert cc.execute.call_count == 2
         cc.execute.assert_any_call("CREATE KEYSPACE ks")
@@ -175,6 +171,6 @@ class TestRunCtx:
         cc = cluster.running[0].control_connection
 
         async with test.run_ctx():
-            test.success = True
+            pass
 
         cc.execute.assert_not_called()
