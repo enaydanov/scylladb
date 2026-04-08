@@ -60,7 +60,7 @@ Each symbol was classified as:
 | Symbol | Category | Status | Justification |
 |--------|----------|--------|---------------|
 | `SUITE_CONFIG_FILENAME` | SHARED | ✅ REMOVED | Was imported by `runner.py` and `test.py`; since no `suite.yaml` exists, every reference was a dead lookup |
-| `TEST_CONFIG_FILENAME` | SHARED | 🔄 REMAINING | Used in `get_testpy_test()` and `runner.py`'s `TestSuiteConfig.from_pytest_node()` |
+| `TEST_CONFIG_FILENAME` | SHARED | ✅ REMOVED | Moved to `runner.py` (sole consumer after `load_cfg()` deletion) |
 | `PYTEST_TESTS_LOGS_FOLDER` | SHARED | 🔄 REMAINING | Imported by `runner.py` and used in `prepare_dirs()` |
 | `output_is_a_tty` | SHARED | 🔄 REMAINING | Used by `create_formatter()` / `palette`, which are imported by `test/pylib/cql_repl.py` (pytest path) and `test.py` |
 | `create_formatter()` | SHARED | 🔄 REMAINING | Used by `palette` class, imported by `test/pylib/cql_repl.py` (pytest) and `test.py` |
@@ -79,8 +79,8 @@ Each symbol was classified as:
 | `__init__()` | SHARED | 🔄 REMAINING | Called by all subclass constructors via `opt_create()` |
 | `next_id()` | SHARED | 🔄 REMAINING | Called from subclass `add_test()` methods |
 | `test_count()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — zero callers remained |
-| `load_cfg()` | SHARED | 🔄 REMAINING | Called by `opt_create()` |
-| `opt_create()` | SHARED | 🔄 REMAINING | Called from `runner.py` via `get_testpy_test()` and from `test.py` |
+| `load_cfg()` | SHARED | ✅ REMOVED | Deleted — `opt_create()` now takes `TestSuiteConfig` (already-parsed YAML) |
+| `opt_create()` | SHARED | 🔄 REMAINING | Called from `runner.py`'s `testpy_test` fixture with a `TestSuiteConfig` argument |
 | `all_tests()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — callers removed in Phase 3 |
 | `pattern` (abstract property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — only consumed by deleted `build_test_list()` |
 | `add_test()` (abstract) | SHARED | ✅ REMOVED | Was called from `get_testpy_test()` which has been inlined; `Test` is now created directly in `testpy_test` fixture |

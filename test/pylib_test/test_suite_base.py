@@ -17,8 +17,6 @@ import pathlib
 from unittest.mock import patch
 
 import pytest
-import yaml
-
 from test.pylib.suite import (
     TestSuite,
     Test,
@@ -151,91 +149,20 @@ class TestNeedCoverage:
 
 
 # ===================================================================
-# TestSuite.__init__ — disabled_tests logic
-# ===================================================================
-
-
-class TestDisabledTests:
-    """Tests for the disabled_tests cross-product logic in __init__."""
-
-    def test_basic_disable(self, mock_options, tmp_path):
-        cfg = {"type": "Python", "disable": ["test_a", "test_b"]}
-        suite = _make_python_suite(str(tmp_path), cfg, mock_options, "dev")
-        assert suite.disabled_tests == {"test_a", "test_b"}
-
-    def test_skip_in_mode(self, mock_options, tmp_path):
-        cfg = {"type": "Python", "skip_in_dev": ["test_c"]}
-        suite = _make_python_suite(str(tmp_path), cfg, mock_options, "dev")
-        assert "test_c" in suite.disabled_tests
-
-    def test_skip_in_debug_modes(self, mock_options, tmp_path):
-        cfg = {"type": "Python", "skip_in_debug_modes": ["test_d"]}
-        suite_debug = _make_python_suite(str(tmp_path), cfg, mock_options, "debug")
-        assert "test_d" in suite_debug.disabled_tests
-
-    def test_skip_in_debug_modes_not_applied_to_release(self, mock_options, tmp_path):
-        cfg = {"type": "Python", "skip_in_debug_modes": ["test_d"]}
-        suite_rel = _make_python_suite(str(tmp_path), cfg, mock_options, "release")
-        assert "test_d" not in suite_rel.disabled_tests
-
-    def test_run_in_mode_disables_others(self, mock_options, tmp_path):
-        """A test listed in run_in_release but not run_in_dev is disabled in dev mode."""
-        cfg = {"type": "Python", "run_in_release": ["release_only"]}
-        suite = _make_python_suite(str(tmp_path), cfg, mock_options, "dev")
-        assert "release_only" in suite.disabled_tests
-
-    def test_run_in_mode_keeps_own(self, mock_options, tmp_path):
-        """A test listed in run_in_dev is NOT disabled in dev mode."""
-        cfg = {"type": "Python", "run_in_dev": ["dev_test"]}
-        suite = _make_python_suite(str(tmp_path), cfg, mock_options, "dev")
-        assert "dev_test" not in suite.disabled_tests
-
-    def test_run_in_both_modes(self, mock_options, tmp_path):
-        """A test listed in both run_in_dev and run_in_release is not disabled in either."""
-        cfg = {"type": "Python", "run_in_dev": ["shared"], "run_in_release": ["shared"]}
-        suite_dev = _make_python_suite(str(tmp_path), cfg, mock_options, "dev")
-        suite_rel = _make_python_suite(str(tmp_path / "r"), cfg, mock_options, "release")
-        assert "shared" not in suite_dev.disabled_tests
-        assert "shared" not in suite_rel.disabled_tests
-
-
-# ===================================================================
-# TestSuite.load_cfg
-# ===================================================================
-
-
-class TestLoadCfg:
-    """Tests for YAML loading + validation."""
-
-    def test_valid_yaml(self, tmp_path):
-        cfg_path = tmp_path / "test_config.yaml"
-        cfg_path.write_text(yaml.dump({"type": "Python", "pool_size": 3}))
-        result = TestSuite.load_cfg(cfg_path)
-        assert result == {"type": "Python", "pool_size": 3}
-
-    def test_non_dict_raises(self, tmp_path):
-        cfg_path = tmp_path / "test_config.yaml"
-        cfg_path.write_text("- just\n- a\n- list\n")
-        with pytest.raises(RuntimeError, match="Failed to load"):
-            TestSuite.load_cfg(cfg_path)
-
-    def test_missing_file_raises(self, tmp_path):
-        with pytest.raises(FileNotFoundError):
-            TestSuite.load_cfg(tmp_path / "nonexistent.yaml")
-
-
-# ===================================================================
-# TestSuite.opt_create — dynamic class loading
+# TestSuite.opt_create — factory with caching
 # ===================================================================
 
 
 class TestOptCreate:
-    """Tests for the factory that resolves suite type strings to classes."""
+    """Tests for the factory that creates/caches TestSuite instances."""
 
-    def _write_cfg(self, suite_dir: pathlib.Path, cfg: dict) -> pathlib.Path:
-        config_path = suite_dir / "test_config.yaml"
-        config_path.write_text(yaml.dump(cfg))
-        return config_path
+    def _make_suite_config(self, suite_dir: pathlib.Path, cfg: dict):
+        """Create a mock TestSuiteConfig with .path and .cfg attributes."""
+        from unittest.mock import MagicMock
+        suite_config = MagicMock()
+        suite_config.path = suite_dir
+        suite_config.cfg = cfg
+        return suite_config
 
     @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
     @patch("test.pylib.suite.Pool")
@@ -243,8 +170,8 @@ class TestOptCreate:
         """opt_create returns a TestSuite instance for a valid config."""
         suite_dir = tmp_path / "suite_py"
         suite_dir.mkdir()
-        config = self._write_cfg(suite_dir, {})
-        suite = TestSuite.opt_create(config, mock_options, "dev")
+        suite_config = self._make_suite_config(suite_dir, {})
+        suite = TestSuite.opt_create(suite_config, mock_options, "dev")
         assert isinstance(suite, TestSuite)
 
     @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
@@ -253,21 +180,10 @@ class TestOptCreate:
         """Second call with same path+mode returns cached instance."""
         suite_dir = tmp_path / "suite_cache"
         suite_dir.mkdir()
-        config = self._write_cfg(suite_dir, {})
-        s1 = TestSuite.opt_create(config, mock_options, "dev")
-        s2 = TestSuite.opt_create(config, mock_options, "dev")
+        suite_config = self._make_suite_config(suite_dir, {})
+        s1 = TestSuite.opt_create(suite_config, mock_options, "dev")
+        s2 = TestSuite.opt_create(suite_config, mock_options, "dev")
         assert s1 is s2
-
-    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
-    @patch("test.pylib.suite.Pool")
-    def test_non_dict_config_raises(self, _pool, _path_to, mock_options, tmp_path):
-        """opt_create raises RuntimeError when YAML doesn't parse to a dict."""
-        suite_dir = tmp_path / "suite_bad_yaml"
-        suite_dir.mkdir()
-        config = suite_dir / "test_config.yaml"
-        config.write_text("- just\n- a\n- list\n")
-        with pytest.raises(RuntimeError, match="Failed to load"):
-            TestSuite.opt_create(config, mock_options, "dev")
 
 
 

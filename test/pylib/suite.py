@@ -19,8 +19,6 @@ from typing import TYPE_CHECKING
 
 import colorama
 import universalasync
-import yaml
-
 from test import TEST_RUNNER, path_to
 from test.pylib.artifact_registry import ArtifactRegistry
 from test.pylib.host_registry import HostRegistry
@@ -37,8 +35,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
     from typing import Any, Union
 
+    from test.pylib.runner import TestSuiteConfig
 
-TEST_CONFIG_FILENAME = "test_config.yaml"
+
 PYTEST_TESTS_LOGS_FOLDER = "pytest_tests_logs"
 
 output_is_a_tty = sys.stdout.isatty()
@@ -146,23 +145,14 @@ class TestSuite:
 
 
     @staticmethod
-    def load_cfg(path: pathlib.Path) -> dict:
-        with path.open(encoding='utf-8') as cfg_file:
-            cfg = yaml.safe_load(cfg_file.read())
-            if not isinstance(cfg, dict):
-                raise RuntimeError(f"Failed to load tests config file {path}")
-            return cfg
-
-    @staticmethod
-    def opt_create(config: pathlib.Path, options: argparse.Namespace, mode: str) -> 'TestSuite':
-        """Create a TestSuite for the given config file.
+    def opt_create(suite_config: TestSuiteConfig, options: argparse.Namespace, mode: str) -> 'TestSuite':
+        """Create a TestSuite for the given TestSuiteConfig.
         Ensures there is only one suite instance per path."""
-        path = str(config.parent)
+        path = str(suite_config.path)
         suite_key = os.path.join(path, mode)
         suite = TestSuite.suites.get(suite_key)
         if not suite:
-            cfg = TestSuite.load_cfg(config)
-            suite = TestSuite(path, cfg, options, mode)
+            suite = TestSuite(path, suite_config.cfg, options, mode)
             assert suite is not None
             TestSuite.suites[suite_key] = suite
         return suite
@@ -173,7 +163,6 @@ class TestSuite:
             if type(cmdline_options) == str:
                 cmdline_options = [cmdline_options]
             cmdline_options = merge_cmdline_options(cmdline_options, create_cfg.cmdline_from_test)
-            cmdline_options = merge_cmdline_options(cmdline_options, options.extra_scylla_cmdline_options.split())
             # There are multiple sources of config options, with increasing priority
             # (if two sources provide the same config option, the higher priority one wins):
             # 1. the defaults

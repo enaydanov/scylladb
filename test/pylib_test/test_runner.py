@@ -19,6 +19,8 @@ from unittest.mock import MagicMock, patch, call
 import pytest
 
 from test.pylib.runner import (
+    TEST_SUITE,
+    TestSuiteConfig,
     _resource_monitor_loop,
     _start_resource_watcher,
     _stop_resource_watcher,
@@ -288,4 +290,90 @@ class TestResourceWatcher:
             os.environ.pop("TESTPY_PREPARED_ENVIRONMENT", None)
             pytest_sessionstart(session)
         mock_start.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TestSuiteConfig.from_pytest_node — CLI options merge happens only once
+# ---------------------------------------------------------------------------
+
+
+class TestFromPytestNodeMerge:
+    """Verify that CLI --extra-scylla-cmdline-options are merged exactly once.
+
+    Before the fix, from_pytest_node() merged CLI options every time it was
+    called — even when retrieving a cached TestSuiteConfig from a parent
+    stash.  For appending options like --logger-log-level this caused
+    duplication.
+    """
+
+    def _make_node(self, path, parent=None, config=None):
+        """Build a minimal mock pytest node with a real pytest.Stash."""
+        node = MagicMock()
+        node.path = path
+        node.parent = parent
+        node.config = config or (parent.config if parent else MagicMock())
+        node.stash = pytest.Stash()
+        return node
+
+    def test_merge_happens_once_for_new_config(self, tmp_path):
+        """When from_pytest_node discovers a config file, CLI options are merged once."""
+        suite_dir = tmp_path / "suite"
+        suite_dir.mkdir()
+        cfg_file = suite_dir / "test_config.yaml"
+        cfg_file.write_text("extra_scylla_cmdline_options:\n  - --smp\n  - '1'\n")
+
+        config = MagicMock()
+        config.getoption.return_value = "--logger-log-level scylla=trace"
+
+        node = self._make_node(path=suite_dir, config=config)
+        result = TestSuiteConfig.from_pytest_node(node)
+
+        assert result is not None
+        extra = result.cfg.get("extra_scylla_cmdline_options", [])
+        # --logger-log-level should appear exactly once
+        count = sum(1 for x in extra if x == "--logger-log-level")
+        assert count == 1, f"--logger-log-level appeared {count} times: {extra}"
+
+    def test_no_re_merge_on_child_lookup(self, tmp_path):
+        """When a child node finds a cached config in its parent stash,
+        CLI options must NOT be merged again."""
+        suite_dir = tmp_path / "suite"
+        suite_dir.mkdir()
+        cfg_file = suite_dir / "test_config.yaml"
+        cfg_file.write_text("{}\n")
+
+        config = MagicMock()
+        config.getoption.return_value = "--logger-log-level scylla=trace"
+
+        # First call: parent node discovers the config file
+        parent_node = self._make_node(path=suite_dir, config=config)
+        suite1 = TestSuiteConfig.from_pytest_node(parent_node)
+
+        # Second call: child node looks up the cached config from parent
+        child_path = suite_dir / "test_foo.py"
+        child_path.touch()
+        child_node = self._make_node(path=child_path, parent=parent_node, config=config)
+        suite2 = TestSuiteConfig.from_pytest_node(child_node)
+
+        assert suite1 is suite2
+        extra = suite2.cfg.get("extra_scylla_cmdline_options", [])
+        # --logger-log-level should appear exactly once, not twice
+        count = sum(1 for x in extra if x == "--logger-log-level")
+        assert count == 1, f"--logger-log-level appeared {count} times (double merge bug): {extra}"
+
+    def test_no_cli_options_leaves_cfg_unchanged(self, tmp_path):
+        """When --extra-scylla-cmdline-options is empty, cfg is not modified."""
+        suite_dir = tmp_path / "suite"
+        suite_dir.mkdir()
+        cfg_file = suite_dir / "test_config.yaml"
+        cfg_file.write_text("extra_scylla_cmdline_options:\n  - --smp\n  - '1'\n")
+
+        config = MagicMock()
+        config.getoption.return_value = ""
+
+        node = self._make_node(path=suite_dir, config=config)
+        result = TestSuiteConfig.from_pytest_node(node)
+
+        assert result is not None
+        assert result.cfg["extra_scylla_cmdline_options"] == ["--smp", "1"]
 

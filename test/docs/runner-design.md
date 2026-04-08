@@ -47,11 +47,10 @@ The file is approximately 527 lines.
 
 ### 2.1 Suite Framework Imports
 
-From `test.pylib.suite.base`:
+From `test.pylib.suite`:
 - `PYTEST_TESTS_LOGS_FOLDER` -- subdirectory name for failure logs
 - `TestSuite` -- class-level `artifacts`, `hosts`, `init_testsuite_globals()`
 - `Test` -- test instance class
-- `TEST_CONFIG_FILENAME` -- config file name constant
 - `prepare_environment` -- initializes directories and services
 - `init_testsuite_globals` -- one-time global setup
 
@@ -91,7 +90,7 @@ A fifth StashKey, `TEST_SUITE`, is defined at module level (line 423) after the
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `TEST_CONFIG_FILENAME` | `"test_config.yaml"` | Locally redefined (not imported from `base.py`) |
+| `TEST_CONFIG_FILENAME` | `"test_config.yaml"` | Defined here; sole consumer after `load_cfg()` removal from `suite.py` |
 | `PYTEST_LOG_FOLDER` | `"pytest_log"` | Subdirectory for pytest process logs |
 | `EXIT_MAXFAIL_REACHED` | `11` | Custom exit code when max failures reached |
 
@@ -316,9 +315,11 @@ the relative path (without extension) is in `disabled_tests(build_mode)`.
 Recursively walks the pytest node tree to find the suite config:
 
 1. Checks for `TEST_CONFIG_FILENAME` (`test_config.yaml`) in `node.path`.
-2. If not found: walks up via `node.parent` stash or recursive call.
-3. If found: applies `--extra-scylla-cmdline-options` by merging into the config's
-   `extra_scylla_cmdline_options` via `merge_cmdline_options()`.
+2. If found: creates a new `TestSuiteConfig` and merges `--extra-scylla-cmdline-options`
+   into `extra_scylla_cmdline_options` via `merge_cmdline_options()` — this merge
+   happens exactly once, when the config is first discovered.
+3. If not found: walks up via `node.parent` stash or recursive call to find a
+   previously-created config (no re-merge).
 4. Stores the result in `node.stash[TEST_SUITE]`.
 
 ---
@@ -350,9 +351,10 @@ The primary bridge fixture between pytest and the suite framework.
 async def testpy_test(request, build_mode) -> Test | None
 ```
 
-- If scope is `"module"` (test.py and bare pytest): reads the suite path from
-  the stash, creates/retrieves the `TestSuite` via `opt_create()`, generates a
-  unique test ID, and returns a new `Test` instance.
+- If scope is `"module"` (test.py and bare pytest): reads the `TestSuiteConfig`
+  from the stash and passes it to `TestSuite.opt_create()` (which uses the
+  already-parsed YAML config), generates a unique test ID, and returns a new
+  `Test` instance.
 - If scope is `"session"` (runpy): returns `None`.  In runpy mode, runner.py is
   not loaded as a plugin; `test/conftest.py` provides its own session-scoped
   `testpy_test` that also returns `None`.
@@ -480,13 +482,14 @@ record, and writes to the `SYSTEM_RESOURCE_METRICS_TABLE`.
 
 ### Key Design Decisions
 
-1. **`TEST_CONFIG_FILENAME` is redefined locally** rather than imported from
-   `base.py`. Both `base.py` and `runner.py` define this as `"test_config.yaml"`.
+1. **`TEST_CONFIG_FILENAME` is defined in `runner.py`** (the sole consumer after
+   `load_cfg()` was removed from `suite.py`).
 
 2. **`TestSuiteConfig` vs `TestSuite`**: `TestSuiteConfig` is deliberately
-   lightweight -- it only reads YAML and computes disabled tests. Full `TestSuite`
-   instances (with cluster pools, artifacts, etc.) are created lazily via
-   `get_testpy_test()` in the `testpy_test` fixture, not during collection.
+   lightweight -- it reads YAML, merges CLI options once, and computes disabled
+   tests. Full `TestSuite` instances (with cluster pools, artifacts, etc.) are
+   created lazily via `opt_create()` in the `testpy_test` fixture (which accepts
+   the `TestSuiteConfig` directly), not during collection.
 
 3. **Dynamic fixture scoping**: `testpy_test_fixture_scope` returns `"module"`
    for the pytest runner (both test.py and bare pytest), ensuring each module

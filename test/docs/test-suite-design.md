@@ -26,8 +26,9 @@ Key characteristics:
 
 - **YAML-driven**: each test directory declares its configuration in
   a `test_config.yaml` file.
-- **Single factory**: `TestSuite.opt_create()` loads the YAML config and
-  instantiates a `TestSuite` directly (one instance per path/mode).
+- **Single factory**: `TestSuite.opt_create()` accepts a `TestSuiteConfig`
+  (which holds the already-parsed YAML) and instantiates a `TestSuite` directly
+  (one instance per path/mode).
 - **Three execution modes**: the `test.py` wrapper script, bare pytest with
   the `test/pylib/runner.py` plugin, and `run.py` scripts that start Scylla
   externally and invoke pytest with `SCYLLA_TEST_RUNNER=runpy`.
@@ -57,10 +58,11 @@ All test directories use `test_config.yaml` with no `type` field required.
 ### 2.2 Factory Pattern
 
 Suite instantiation is never done directly by callers. Instead,
-`TestSuite.opt_create(config, options, mode)` acts as the single factory:
+`TestSuite.opt_create(suite_config, options, mode)` acts as the single factory:
 
-1. Loads `test_config.yaml` via `load_cfg()`.
-2. Instantiates `TestSuite(path, cfg, options, mode)`.
+1. Takes a `TestSuiteConfig` (from `runner.py`) that already holds the parsed
+   YAML config and the CLI-merged `extra_scylla_cmdline_options`.
+2. Instantiates `TestSuite(path, suite_config.cfg, options, mode)`.
 3. Caches the instance in `TestSuite.suites` (a class-level dict keyed
    by `path + "/" + mode`), ensuring exactly one suite instance per directory/mode
    combination.
@@ -162,11 +164,9 @@ If `options.run_id` is set (pytest mode), uses that fixed value. Otherwise
 increments the per-key counter. This ensures repeated runs of the same test
 (via `--repeat`) get distinct IDs for result differentiation.
 
-**`load_cfg(path: Path) -> dict`** (static): loads a YAML file, validates it
-produces a dict, and returns it. Raises `RuntimeError` if parsing fails.
-
-**`opt_create(config, options, mode) -> TestSuite`** (static): factory method
-described in Section 2.2.
+**`opt_create(suite_config, options, mode) -> TestSuite`** (static): factory method
+described in Section 2.2. Takes a `TestSuiteConfig` from `runner.py` rather than
+a raw file path, eliminating double YAML reads.
 
 **`need_coverage() -> bool`**: returns `True` if coverage is enabled in options,
 the current mode is in the coverage modes, and the suite config does not set
@@ -182,8 +182,9 @@ Returns an async `create_cluster` function that:
      `tablets_initial_scale_factor` of 4 for release / 2 otherwise).
    - Suite-level config from `extra_scylla_config_options`.
    - Test-level config (passed via `CreateServerParams`).
-   - Command-line options are similarly merged from suite config, test params,
-     and CLI `--extra-scylla-cmdline-options`.
+   - Command-line options are merged from suite config (which already includes
+     CLI `--extra-scylla-cmdline-options`, merged once by `TestSuiteConfig`) and
+     test params.
 2. Creates a `ScyllaCluster` with the host registry and initial cluster size.
 3. Registers `stop` as both a suite artifact and an exit artifact.
 4. If `save_log_on_success` is false, also registers `uninstall` as a suite artifact.
@@ -280,12 +281,12 @@ All services lease their own IP addresses from the host registry.
 
 Test creation logic lives directly in the `testpy_test` fixture in `runner.py`:
 
-1. Reads `suite_path` from the pytest stash (`TEST_SUITE` key).
-2. Constructs the config file path from `suite_path / TEST_CONFIG_FILENAME`.
-3. Creates/retrieves the suite via `TestSuite.opt_create()`.
-4. If `options.exe_path` or `options.exe_url` is set, overrides `suite.scylla_exe`.
-5. Creates a `Test` instance directly with a monotonic ID from `suite.next_id()`.
-6. Returns the new `Test` instance.
+1. Reads the `TestSuiteConfig` from the pytest stash (`TEST_SUITE` key).
+2. Passes it directly to `TestSuite.opt_create()`, which uses the already-parsed
+   YAML config (no double read).
+3. If `options.exe_path` or `options.exe_url` is set, overrides `suite.scylla_exe`.
+4. Creates a `Test` instance directly with a monotonic ID from `suite.next_id()`.
+5. Returns the new `Test` instance.
 
 Conftest fixtures that need `Test` attributes (e.g., `suite.log_dir`, `uname`)
 take `testpy_test` as a fixture parameter rather than creating their own `Test`.
@@ -311,7 +312,6 @@ whether stdout is a TTY.
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `TEST_CONFIG_FILENAME` | `"test_config.yaml"` | Current config file name |
 | `PYTEST_TESTS_LOGS_FOLDER` | `"pytest_tests_logs"` | Subdirectory for pytest log files |
 | `output_is_a_tty` | `sys.stdout.isatty()` | Cached TTY detection |
 
@@ -413,8 +413,8 @@ test_config.yaml
 ```
 testpy_test fixture
        |
-       | suite_path = request.node.stash[TEST_SUITE].path
-       | TestSuite.opt_create()  --> creates/caches TestSuite
+       | suite_config = request.node.stash[TEST_SUITE]
+       | TestSuite.opt_create(suite_config)  --> creates/caches TestSuite
        | Test(test_no, shortname, suite)
        |   v
        | Test instance (with suite back-reference)

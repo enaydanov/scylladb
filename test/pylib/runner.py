@@ -33,12 +33,12 @@ from test.pylib.skip_reason_plugin import skip_marker
 from test.pylib.scylla_cluster import get_scylla_executable, merge_cmdline_options
 from test.pylib.suite import (
     PYTEST_TESTS_LOGS_FOLDER,
-    TEST_CONFIG_FILENAME,
     Test,
     TestSuite,
     prepare_environment,
     init_testsuite_globals,
 )
+
 from test.pylib.util import get_modes_to_run, scale_timeout_by_mode
 
 from datetime import datetime
@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from pytest import Parser
 
 
+TEST_CONFIG_FILENAME = "test_config.yaml"
 PYTEST_LOG_FOLDER = "pytest_log"
 
 REPEATING_FILES = pytest.StashKey[set[pathlib.Path]]()
@@ -196,10 +197,9 @@ async def testpy_test(request: pytest.FixtureRequest, build_mode: str) -> Test |
     """Create an instance of Test class for the current test module."""
 
     if request.scope == "module":
-        suite_path = request.node.stash[TEST_SUITE].path
-        suite_config = suite_path / TEST_CONFIG_FILENAME
+        suite_config = request.node.stash[TEST_SUITE]
         options = request.config.option
-        suite = TestSuite.opt_create(config=suite_config, options=options, mode=build_mode)
+        suite = TestSuite.opt_create(suite_config=suite_config, options=options, mode=build_mode)
         if getattr(options, "exe_path", False):
             suite.scylla_exe = options.exe_path
         elif getattr(options, "exe_url", False):
@@ -456,6 +456,11 @@ class TestSuiteConfig:
         config_file = node.path / TEST_CONFIG_FILENAME
         if config_file.is_file():
             suite = cls(config_file=config_file)
+            extra_opts = node.config.getoption("--extra-scylla-cmdline-options")
+            if extra_opts:
+                extra_cmd = suite.cfg.get('extra_scylla_cmdline_options', [])
+                extra_cmd = merge_cmdline_options(extra_cmd, extra_opts.split())
+                suite.cfg['extra_scylla_cmdline_options'] = extra_cmd
         else:
             if node.parent is None:
                 return None
@@ -463,11 +468,6 @@ class TestSuiteConfig:
             if suite is None:
                 suite = cls.from_pytest_node(node=node.parent)
         if suite:
-            extra_opts = node.config.getoption("--extra-scylla-cmdline-options")
-            if extra_opts:
-                extra_cmd = suite.cfg.get('extra_scylla_cmdline_options', [])
-                extra_cmd = merge_cmdline_options(extra_cmd, extra_opts.split())
-                suite.cfg['extra_scylla_cmdline_options'] = extra_cmd
             node.stash[TEST_SUITE] = suite
         return suite
 
