@@ -121,41 +121,6 @@ class TestNeedCoverage:
         assert suite.need_coverage() is True
 
 
-# ===================================================================
-# TestSuite.opt_create — factory with caching
-# ===================================================================
-
-
-class TestOptCreate:
-    """Tests for the factory that creates/caches TestSuite instances."""
-
-    def _make_suite_config(self, suite_dir: pathlib.Path, cfg: dict):
-        """Create a mock TestSuiteConfig with .path and .cfg attributes."""
-        from unittest.mock import MagicMock
-        suite_config = MagicMock()
-        suite_config.path = suite_dir
-        suite_config.cfg = cfg
-        return suite_config
-
-    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
-    def test_creates_suite(self, _path_to, mock_options, tmp_path):
-        """opt_create returns a TestSuite instance for a valid config."""
-        suite_dir = tmp_path / "suite_py"
-        suite_dir.mkdir()
-        suite_config = self._make_suite_config(suite_dir, {})
-        suite = TestSuite.opt_create(suite_config, mock_options, "dev")
-        assert isinstance(suite, TestSuite)
-
-    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
-    def test_caching(self, _path_to, mock_options, tmp_path):
-        """Second call with same path+mode returns cached instance."""
-        suite_dir = tmp_path / "suite_cache"
-        suite_dir.mkdir()
-        suite_config = self._make_suite_config(suite_dir, {})
-        s1 = TestSuite.opt_create(suite_config, mock_options, "dev")
-        s2 = TestSuite.opt_create(suite_config, mock_options, "dev")
-        assert s1 is s2
-
 
 
 # ===================================================================

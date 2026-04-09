@@ -71,16 +71,16 @@ Each symbol was classified as:
 
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
-| `suites` (class dict) | SHARED | 🔄 REMAINING | Used by `opt_create()` and `all_tests()` |
+| `suites` (class dict) | SHARED | 🔄 REMAINING | Used by `testpy_test` fixture for instance caching |
 | `artifacts` (class attr) | SHARED | ✅ REMOVED | Extracted to module-level `artifacts` instance in `artifact_registry.py` |
 | `hosts` (class attr) | SHARED | ✅ REMOVED | Replaced by `HostRegistry()` singleton calls |
 | `FLAKY_RETRIES` | LEGACY-ONLY | ✅ REMOVED | Only used in `TestSuite.run()` |
 | `_next_id` | SHARED | ✅ REMOVED | Removed — `run_id` is now passed directly to `Test.__init__()` from the pytest stash |
-| `__init__()` | SHARED | 🔄 REMAINING | Called by all subclass constructors via `opt_create()` |
+| `__init__()` | SHARED | 🔄 REMAINING | Called directly from `testpy_test` fixture in `runner.py` |
 | `next_id()` | SHARED | ✅ REMOVED | Removed — `run_id` is passed directly to `Test.__init__()` |
 | `test_count()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — zero callers remained |
 | `load_cfg()` | SHARED | ✅ REMOVED | Deleted — `opt_create()` now takes `TestSuiteConfig` (already-parsed YAML) |
-| `opt_create()` | SHARED | 🔄 REMAINING | Called from `runner.py`'s `testpy_test` fixture with a `TestSuiteConfig` argument |
+| `opt_create()` | SHARED | ✅ REMOVED | Inlined into `testpy_test` fixture in `runner.py` |
 | `all_tests()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — callers removed in Phase 3 |
 | `pattern` (abstract property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — only consumed by deleted `build_test_list()` |
 | `add_test()` (abstract) | SHARED | ✅ REMOVED | Was called from `get_testpy_test()` which has been inlined; `Test` is now created directly in `testpy_test` fixture |
@@ -130,7 +130,7 @@ Each symbol was classified as:
 
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
-| `__init__()` | SHARED | 🔄 REMAINING | Called via `opt_create()` |
+| `__init__()` | SHARED | 🔄 REMAINING | Called directly from `testpy_test` fixture in `runner.py` |
 | `get_cluster_factory()` | SHARED | ✅ REMOVED | Replaced by `create_cluster()` method and `@cached_property clusters`. Server creation logic moved to `ScyllaCluster.add_server()`. |
 | `pattern` (property) | SHARED | 🔄 REMAINING | Required abstract property |
 | `add_test()` | SHARED | ✅ REMOVED | Was called from `get_testpy_test()` which has been inlined |
@@ -359,7 +359,7 @@ Only import utility functions (`add_host_option`, `add_cql_connection_options`,
 | Category | Count | Notable Items |
 |----------|-------|---------------|
 | LEGACY-ONLY (remaining) | ~440 lines (test.py) + ~80 lines (conftest files) | `process_coverage()`, `setup_signal_handlers()`, conftest legacy branches |
-| SHARED | ~32 (suite/) + ~260 lines (test.py) | `opt_create()`, `get_testpy_test()`, `prepare_environment()`, `add_test()` |
+| SHARED | ~32 (suite/) + ~260 lines (test.py) | `prepare_environment()` |
 
 ### Largest Remaining Dead Code Blocks
 

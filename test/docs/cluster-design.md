@@ -282,7 +282,7 @@ Uses `async with` for proper cleanup.
 
 ```
 testpy_test fixture (from runner.py)
-    |-- TestSuite.opt_create() --> TestSuite instance
+    |-- TestSuite (cached in TestSuite.suites)
     v
 manager_api_sock_path fixture
     |-- testpy_test.suite.clusters (cluster pool from TestSuite)

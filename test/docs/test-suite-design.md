@@ -26,9 +26,9 @@ Key characteristics:
 
 - **YAML-driven**: each test directory declares its configuration in
   a `test_config.yaml` file.
-- **Single factory**: `TestSuite.opt_create()` accepts a `TestSuiteConfig`
-  (which holds the already-parsed YAML) and instantiates a `TestSuite` directly
-  (one instance per path/mode).
+- **Instance caching**: the `testpy_test` fixture in `runner.py` creates
+  `TestSuite` instances and caches them in `TestSuite.suites` (a class-level
+  dict keyed by path/mode), ensuring one instance per directory/mode.
 - **Three execution modes**: the `test.py` wrapper script, bare pytest with
   the `test/pylib/runner.py` plugin, and `run.py` scripts that start Scylla
   externally and invoke pytest with `SCYLLA_TEST_RUNNER=runpy`.
@@ -56,17 +56,16 @@ Test                                  suite.py
 `TestSuite` is the only suite class.  `Test` is the only test class.
 All test directories use `test_config.yaml` with no `type` field required.
 
-### 2.2 Factory Pattern
+### 2.2 Instance Caching
 
-Suite instantiation is never done directly by callers. Instead,
-`TestSuite.opt_create(suite_config, options, mode)` acts as the single factory:
+Suite instantiation happens in the `testpy_test` fixture in `runner.py`:
 
-1. Takes a `TestSuiteConfig` (from `runner.py`) that already holds the parsed
-   YAML config and the CLI-merged `extra_scylla_cmdline_options`.
-2. Instantiates `TestSuite(path, suite_config.cfg, options, mode)`.
-3. Caches the instance in `TestSuite.suites` (a class-level dict keyed
-   by `path + "/" + mode`), ensuring exactly one suite instance per directory/mode
-   combination.
+1. Reads the `TestSuiteConfig` from the pytest stash (already holds the parsed
+   YAML config and the CLI-merged `extra_scylla_cmdline_options`).
+2. Looks up `TestSuite.suites` (a class-level dict keyed by `path + "/" + mode`).
+3. If no cached instance exists, instantiates
+   `TestSuite(path, suite_config.cfg, options, mode)` and stores it.
+4. This ensures exactly one suite instance per directory/mode combination.
 
 ---
 
@@ -140,10 +139,6 @@ Sets the following instance state:
 Note: `clusters` is a `@cached_property` (see Section 4.4), not set in `__init__`.
 
 ### 4.3 Concrete Methods
-
-**`opt_create(suite_config, options, mode) -> TestSuite`** (static): factory method
-described in Section 2.2. Takes a `TestSuiteConfig` from `runner.py` rather than
-a raw file path, eliminating double YAML reads.
 
 **`need_coverage() -> bool`**: returns `True` if coverage is enabled in options,
 the current mode is in the coverage modes, and the suite config does not set
@@ -234,8 +229,8 @@ The following functions have been moved to `runner.py` (see
 Test creation logic lives directly in the `testpy_test` fixture in `runner.py`:
 
 1. Reads the `TestSuiteConfig` from the pytest stash (`TEST_SUITE` key).
-2. Passes it directly to `TestSuite.opt_create()`, which uses the already-parsed
-   YAML config (no double read).
+2. Looks up `TestSuite.suites` by `path/mode` key; creates and caches a new
+   `TestSuite` if none exists.
 3. If `options.exe_path` or `options.exe_url` is set, overrides `suite.scylla_exe`.
 4. Creates a `Test` instance, passing the `run_id` from
    `request.node.stash[RUN_ID]` (set by `pytest_collect_file()`).
@@ -288,7 +283,8 @@ The pytest-based runner integrates with the suite framework via:
 
 **`testpy_test` fixture** (module-scoped): creates a `Test` instance for the
 current test file by reading the suite path from the pytest stash, creating or
-retrieving the `TestSuite` via `opt_create()`, and generating a unique test ID.
+retrieving the `TestSuite` (cached in `TestSuite.suites`), and generating a
+unique test ID.
 This is how the conftest files in each test directory access the suite's cluster
 pool and configuration — they take `testpy_test` as a fixture parameter.
 
@@ -370,7 +366,7 @@ test_config.yaml
 testpy_test fixture
        |
        | suite_config = request.node.stash[TEST_SUITE]
-       | TestSuite.opt_create(suite_config)  --> creates/caches TestSuite
+       | TestSuite.suites lookup  --> creates/caches TestSuite
        | Test(shortname, suite, run_id=stash[RUN_ID])
        |   v
        | Test instance (with suite back-reference)

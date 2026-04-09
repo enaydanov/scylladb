@@ -31,6 +31,7 @@ from test.pylib.runner import (
     pytest_sessionstart,
     testpy_test_fixture_scope,
 )
+from test.pylib.suite import TestSuite
 
 
 # ---------------------------------------------------------------------------
@@ -481,3 +482,97 @@ class TestHelpTextNoPythonTest:
                 break
         else:
             pytest.fail("--cluster-pool-size option not found")
+
+# ---------------------------------------------------------------------------
+# testpy_test fixture — suite creation and caching (inlined from opt_create)
+# ---------------------------------------------------------------------------
+
+
+class TestTestpyTestSuiteCaching:
+    """Verify that the testpy_test fixture creates and caches TestSuite instances.
+
+    The caching logic (formerly TestSuite.opt_create) was inlined into the
+    testpy_test fixture.  These tests exercise the same dict-based caching
+    that the fixture uses (TestSuite.suites keyed by path/mode).
+    """
+
+    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
+    def test_creates_suite_and_caches_it(self, _path_to, tmp_path):
+        """Creating a TestSuite stores it in TestSuite.suites under path/mode key."""
+        suite_dir = tmp_path / "my_suite"
+        suite_dir.mkdir()
+        options = MagicMock(
+            tmpdir=str(tmp_path), coverage=False, coverage_modes=[],
+            save_log_on_success=False, cluster_pool_size=None,
+            extra_scylla_cmdline_options="",
+        )
+
+        TestSuite.suites.clear()
+        path = str(suite_dir)
+        suite_key = os.path.join(path, "dev")
+        suite = TestSuite.suites.get(suite_key)
+        assert suite is None
+
+        suite = TestSuite(path, {}, options, "dev")
+        TestSuite.suites[suite_key] = suite
+
+        assert isinstance(suite, TestSuite)
+        assert suite_key in TestSuite.suites
+        assert TestSuite.suites[suite_key] is suite
+        TestSuite.suites.clear()
+
+    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
+    def test_second_lookup_returns_cached_instance(self, _path_to, tmp_path):
+        """Looking up the same path+mode key returns the cached instance, not a new one."""
+        suite_dir = tmp_path / "cached_suite"
+        suite_dir.mkdir()
+        options = MagicMock(
+            tmpdir=str(tmp_path), coverage=False, coverage_modes=[],
+            save_log_on_success=False, cluster_pool_size=None,
+            extra_scylla_cmdline_options="",
+        )
+
+        TestSuite.suites.clear()
+        path = str(suite_dir)
+        suite_key = os.path.join(path, "dev")
+
+        # First creation
+        s1 = TestSuite(path, {}, options, "dev")
+        TestSuite.suites[suite_key] = s1
+
+        # Second lookup — must return the same object
+        s2 = TestSuite.suites.get(suite_key)
+        assert s2 is s1
+
+        # Verify new TestSuite is NOT created when cache hit
+        assert len(TestSuite.suites) == 1
+        TestSuite.suites.clear()
+
+    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
+    def test_different_modes_get_separate_suites(self, _path_to, tmp_path):
+        """The same path with different modes produces distinct cached suites."""
+        suite_dir = tmp_path / "mode_suite"
+        suite_dir.mkdir()
+        options = MagicMock(
+            tmpdir=str(tmp_path), coverage=False, coverage_modes=[],
+            save_log_on_success=False, cluster_pool_size=None,
+            extra_scylla_cmdline_options="",
+        )
+
+        TestSuite.suites.clear()
+        path = str(suite_dir)
+
+        key_dev = os.path.join(path, "dev")
+        key_rel = os.path.join(path, "release")
+
+        s_dev = TestSuite(path, {}, options, "dev")
+        TestSuite.suites[key_dev] = s_dev
+
+        s_rel = TestSuite(path, {}, options, "release")
+        TestSuite.suites[key_rel] = s_rel
+
+        assert s_dev is not s_rel
+        assert TestSuite.suites[key_dev] is s_dev
+        assert TestSuite.suites[key_rel] is s_rel
+        assert len(TestSuite.suites) == 2
+        TestSuite.suites.clear()

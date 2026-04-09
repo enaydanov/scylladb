@@ -359,9 +359,9 @@ async def testpy_test(request, build_mode) -> Test | None
 ```
 
 - If scope is `"module"` (test.py and bare pytest): reads the `TestSuiteConfig`
-  from the stash and passes it to `TestSuite.opt_create()` (which uses the
-  already-parsed YAML config), generates a unique test ID, and returns a new
-  `Test` instance.
+  from the stash, creates or retrieves a cached `TestSuite` from
+  `TestSuite.suites`, generates a unique test ID, and returns a new `Test`
+  instance.
 - If scope is `"session"` (runpy): returns `None`.  In runpy mode, runner.py is
   not loaded as a plugin; `test/conftest.py` provides its own session-scoped
   `testpy_test` that also returns `None`.
@@ -494,8 +494,8 @@ record, and writes to the `SYSTEM_RESOURCE_METRICS_TABLE`.
 2. **`TestSuiteConfig` vs `TestSuite`**: `TestSuiteConfig` is deliberately
    lightweight -- it reads YAML, merges CLI options once, and computes disabled
    tests. Full `TestSuite` instances (with cluster pools, etc.) are
-   created lazily via `opt_create()` in the `testpy_test` fixture (which accepts
-   the `TestSuiteConfig` directly), not during collection.
+   created lazily in the `testpy_test` fixture (which reads the
+   `TestSuiteConfig` from the stash), not during collection.
 
 3. **Dynamic fixture scoping**: `testpy_test_fixture_scope` returns `"module"`
    for the pytest runner (both test.py and bare pytest), ensuring each module
@@ -539,7 +539,7 @@ pytest_collection_modifyitems()
     |-- sort by suite order (run_first promoted)
     v
 test execution
-    |-- testpy_test fixture  --> TestSuite.opt_create() + Test()
+    |-- testpy_test fixture  --> TestSuite (cached) + Test()
     |-- conftest fixtures use testpy_test.suite for clusters, hosts, config
     v
 pytest_runtest_makereport()

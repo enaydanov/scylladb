@@ -206,7 +206,12 @@ async def testpy_test(request: pytest.FixtureRequest, build_mode: str) -> Test |
     if request.scope == "module":
         suite_config = request.node.stash[TEST_SUITE]
         options = request.config.option
-        suite = TestSuite.opt_create(suite_config=suite_config, options=options, mode=build_mode)
+        path = str(suite_config.path)
+        suite_key = os.path.join(path, build_mode)
+        suite = TestSuite.suites.get(suite_key)
+        if not suite:
+            suite = TestSuite(path, suite_config.cfg, options, build_mode)
+            TestSuite.suites[suite_key] = suite
         if getattr(options, "exe_path", False):
             suite.scylla_exe = options.exe_path
         elif getattr(options, "exe_url", False):

@@ -24,8 +24,6 @@ from test.pylib.util import LogPrefixAdapter, get_xdist_worker_id
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from test.pylib.runner import TestSuiteConfig
-
 
 
 class TestSuite:
@@ -57,19 +55,6 @@ class TestSuite:
         self.scylla_exe = path_to(self.mode, "scylla")
 
 
-
-    @staticmethod
-    def opt_create(suite_config: TestSuiteConfig, options: argparse.Namespace, mode: str) -> 'TestSuite':
-        """Create a TestSuite for the given TestSuiteConfig.
-        Ensures there is only one suite instance per path."""
-        path = str(suite_config.path)
-        suite_key = os.path.join(path, mode)
-        suite = TestSuite.suites.get(suite_key)
-        if not suite:
-            suite = TestSuite(path, suite_config.cfg, options, mode)
-            assert suite is not None
-            TestSuite.suites[suite_key] = suite
-        return suite
 
     @cached_property
     def clusters(self) -> Pool:
