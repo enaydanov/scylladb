@@ -90,7 +90,6 @@ config.
 | `coverage` | `bool` | `true` | `TestSuite.need_coverage()` | Whether to enable code coverage for this suite. |
 | `cluster` | `mapping` | `{"initial_size": 1}` | `TestSuite.__init__` | Cluster configuration. Sub-key `initial_size` controls the number of nodes. |
 | `pool_size` | `int` | `2` | `TestSuite.__init__` | Number of clusters in the reuse pool. Overridden by CLI `--cluster-pool-size` or env `CLUSTER_POOL_SIZE`. |
-| `dirties_cluster` | `list[string]` | `[]` | `TestSuite.__init__` | Tests that leave the cluster in a dirty state (requiring recycle). |
 | `extra_scylla_cmdline_options` | `list[string]` or `string` | `[]` | `TestSuite.create_cluster()` → `ScyllaCluster.add_server()` | Additional Scylla command-line flags. Merged with test-level and CLI-level options. |
 | `extra_scylla_config_options` | `mapping` | `{}` | `TestSuite.create_cluster()` → `ScyllaCluster.add_server()` | Additional Scylla config file options. Merged with defaults and test-level config. |
 | `custom_args` | `mapping[string, list[string]]` | `{}` | (Boost/unit suites, outside this framework) | Per-test custom arguments. Not consumed by the Python suite classes. |
@@ -139,7 +138,6 @@ Sets the following instance state:
 | `mode` | Build mode string |
 | `base_env` | Base environment dict. If coverage is needed, adds `LLVM_PROFILE_FILE`. |
 | `scylla_exe` | Path to the Scylla executable for the current mode, resolved via `path_to(mode, "scylla")`. |
-| `dirties_cluster` | Set of test shortnames from `cfg["dirties_cluster"]`. Tests in this set cause their cluster to be marked dirty after execution. |
 
 Note: `clusters` is a `@cached_property` (see Section 4.4), not set in `__init__`.
 
@@ -211,7 +209,7 @@ for a pool-based test:
 3. Takes a log savepoint on the cluster.
 4. Yields the cluster to the test body.
 5. After the test: sets `success = True`, checks if the shortname is in
-   `dirties_cluster` (marks the cluster dirty if so), and calls
+   `cfg["dirties_cluster"]` (marks the cluster dirty if so), and calls
    `cluster.after_test(uname, success)`.
 6. On exception during setup or teardown: marks cluster dirty, logs diagnostic
    info about whether the failure was pre-test or post-test.
@@ -415,7 +413,7 @@ suite.clusters  (first access triggers @cached_property)
        |
        | --- test executes ---
        |
-       | if shortname in dirties_cluster: cluster.is_dirty = True
+       | if shortname in cfg["dirties_cluster"]: cluster.is_dirty = True
        | cluster.after_test(uname, success)
        | pool.put(cluster, is_dirty)
        |   |

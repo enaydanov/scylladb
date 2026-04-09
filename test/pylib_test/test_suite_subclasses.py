@@ -74,8 +74,8 @@ class TestRunCtx:
     @pytest.mark.asyncio
     async def test_run_ctx_dirty_cluster(self, tmp_path, mock_options):
         """When test is in dirties_cluster, cluster is returned as dirty."""
-        test = self._make_test(tmp_path, mock_options, shortname="test_foo")
-        test.suite.dirties_cluster = {"test_foo"}
+        cfg = {"dirties_cluster": ["test_foo"]}
+        test = self._make_test(tmp_path, mock_options, cfg=cfg, shortname="test_foo")
         cluster = self._mock_cluster()
         pool = self._mock_pool(cluster)
         test.suite.clusters = pool

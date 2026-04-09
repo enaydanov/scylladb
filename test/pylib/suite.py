@@ -58,7 +58,6 @@ class TestSuite:
             self.base_env["LLVM_PROFILE_FILE"] = str(self.log_dir / "coverage" / self.name / "%m.profraw")
 
         self.scylla_exe = path_to(self.mode, "scylla")
-        self.dirties_cluster = set(cfg.get("dirties_cluster", []))
 
 
 
@@ -167,7 +166,7 @@ class Test:
             yield cluster
 
             self.success = True
-            if self.shortname in self.suite.dirties_cluster:
+            if self.shortname in self.suite.cfg.get("dirties_cluster", []):
                 cluster.is_dirty = True
             cluster.after_test(self.uname, self.success)
             is_after_test_ok = True
