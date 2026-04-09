@@ -38,3 +38,6 @@ class ArtifactRegistry:
 
     def add_exit_artifact(self, suite: Optional[Any], artifact: Callable[[], Artifact]):
         self.exit_artifacts.setdefault(suite, []).append(artifact())
+
+
+artifacts = ArtifactRegistry()

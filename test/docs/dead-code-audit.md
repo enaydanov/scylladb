@@ -72,7 +72,7 @@ Each symbol was classified as:
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
 | `suites` (class dict) | SHARED | 🔄 REMAINING | Used by `opt_create()` and `all_tests()` |
-| `artifacts` (class attr) | SHARED | 🔄 REMAINING | Set in `pytest_sessionstart()`; used by `runner.py` and `test.py` |
+| `artifacts` (class attr) | SHARED | ✅ REMOVED | Extracted to module-level `artifacts` instance in `artifact_registry.py` |
 | `hosts` (class attr) | SHARED | ✅ REMOVED | Replaced by `HostRegistry()` singleton calls |
 | `FLAKY_RETRIES` | LEGACY-ONLY | ✅ REMOVED | Only used in `TestSuite.run()` |
 | `_next_id` | SHARED | ✅ REMOVED | Removed — `run_id` is now passed directly to `Test.__init__()` from the pytest stash |

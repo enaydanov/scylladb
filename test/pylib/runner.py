@@ -38,7 +38,7 @@ from test.pylib.suite import (
     Test,
     TestSuite,
 )
-from test.pylib.artifact_registry import ArtifactRegistry
+from test.pylib.artifact_registry import artifacts
 from test.pylib.host_registry import HostRegistry
 from test.pylib.ldap_server import start_ldap
 from test.pylib.minio_server import MinioServer
@@ -275,16 +275,16 @@ async def start_3rd_party_services(tempdir_base: pathlib.Path, toxiproxy_byte_li
     async def make_async_finalize():
         finalize()
 
-    TestSuite.artifacts.add_exit_artifact(None, make_async_finalize)
+    artifacts.add_exit_artifact(None, make_async_finalize)
     ms = MinioServer(
         tempdir_base=str(tempdir_base),
         address=await hosts.lease_host(),
         logger=LogPrefixAdapter(logger=logging.getLogger("minio"), extra={"prefix": "minio"}),
     )
     await ms.start()
-    TestSuite.artifacts.add_exit_artifact(None, ms.stop)
+    artifacts.add_exit_artifact(None, ms.stop)
 
-    TestSuite.artifacts.add_exit_artifact(None, hosts.cleanup)
+    artifacts.add_exit_artifact(None, hosts.cleanup)
 
     mock_s3_server = MockS3Server(
         host=await hosts.lease_host(),
@@ -292,7 +292,7 @@ async def start_3rd_party_services(tempdir_base: pathlib.Path, toxiproxy_byte_li
         logger=LogPrefixAdapter(logger=logging.getLogger("s3_mock"), extra={"prefix": "s3_mock"}),
     )
     await mock_s3_server.start()
-    TestSuite.artifacts.add_exit_artifact(None, mock_s3_server.stop)
+    artifacts.add_exit_artifact(None, mock_s3_server.stop)
 
     minio_uri = f"http://{os.environ[ms.ENV_ADDRESS]}:{os.environ[ms.ENV_PORT]}"
     proxy_s3_server = S3ProxyServer(
@@ -304,7 +304,7 @@ async def start_3rd_party_services(tempdir_base: pathlib.Path, toxiproxy_byte_li
         logger=LogPrefixAdapter(logger=logging.getLogger("s3_proxy"), extra={"prefix": "s3_proxy"}),
     )
     await proxy_s3_server.start()
-    TestSuite.artifacts.add_exit_artifact(None, proxy_s3_server.stop)
+    artifacts.add_exit_artifact(None, proxy_s3_server.stop)
 
 
 @universalasync.async_to_sync_wraps
@@ -321,9 +321,8 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     # Check if this is an xdist worker
     is_xdist_worker = xdist.is_xdist_worker(request_or_session=session)
 
-    # Initialize globals — always needed (xdist workers run in separate processes)
-    TestSuite.artifacts = ArtifactRegistry()
-    TestSuite.artifacts.add_exit_artifact(None, HostRegistry().cleanup)
+    # Register host cleanup as an exit artifact
+    artifacts.add_exit_artifact(None, HostRegistry().cleanup)
 
     # Prepare environment just once in the main pytest process (not in xdist workers)
     if not is_xdist_worker:
@@ -397,8 +396,7 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         return
     _stop_resource_watcher()
     # we only clean up when running with pure pytest
-    if getattr(TestSuite, "artifacts", None) is not None:
-        asyncio.run(TestSuite.artifacts.cleanup_before_exit())
+    asyncio.run(artifacts.cleanup_before_exit())
 
     # Modify exit code to reflect the number of failed tests for easier detection in CI.
     maxfail = session.config.getoption("maxfail")

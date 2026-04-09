@@ -15,6 +15,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING
 
 from test import path_to
+from test.pylib.artifact_registry import artifacts
 from test.pylib.host_registry import HostRegistry
 from test.pylib.pool import Pool
 from test.pylib.scylla_cluster import ScyllaCluster
@@ -23,7 +24,6 @@ from test.pylib.util import LogPrefixAdapter, get_xdist_worker_id
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from test.pylib.artifact_registry import ArtifactRegistry
     from test.pylib.runner import TestSuiteConfig
 
 
@@ -35,8 +35,6 @@ class TestSuite:
     # All existing test suites, one suite per path/mode.
 
     suites: dict[str, TestSuite] = {}
-
-    artifacts: ArtifactRegistry
 
 
     def __init__(self, path: str, cfg: dict, options: argparse.Namespace, mode: str) -> None:
@@ -99,11 +97,11 @@ class TestSuite:
         )
 
         # Suite artifacts are removed when the entire suite ends successfully.
-        self.artifacts.add_suite_artifact(self, cluster.stop)
+        artifacts.add_suite_artifact(self, cluster.stop)
         if not self.options.save_log_on_success:
             # If a test fails, we might want to keep the data dirs.
-            self.artifacts.add_suite_artifact(self, cluster.uninstall)
-        self.artifacts.add_exit_artifact(self, cluster.stop)
+            artifacts.add_suite_artifact(self, cluster.uninstall)
+        artifacts.add_exit_artifact(self, cluster.stop)
 
         await cluster.install_and_start()
         # If cluster failed to start, raise the exception immediately

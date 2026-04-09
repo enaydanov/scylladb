@@ -48,8 +48,11 @@ The file is approximately 527 lines.
 ### 2.1 Suite Framework Imports
 
 From `test.pylib.suite`:
-- `TestSuite` -- class-level `artifacts`, `hosts`
+- `TestSuite` -- suite factory and cluster management
 - `Test` -- test instance class
+
+From `test.pylib.artifact_registry`:
+- `artifacts` -- module-level `ArtifactRegistry` instance for lifecycle cleanup
 
 Defined directly in `runner.py` (moved from `suite.py`):
 - `PYTEST_TESTS_LOGS_FOLDER` -- subdirectory name for failure logs
@@ -175,9 +178,9 @@ Called during pytest startup. Performs:
 Runs during session startup. Gates:
 - Skips if `TEST_RUNNER != "pytest"` or `--collect-only`.
 
-**Global initialization** (xdist workers or if test.py hasn't prepared):
-- Creates `TestSuite.artifacts = ArtifactRegistry()`.
-- Registers `HostRegistry().cleanup` as an exit artifact.
+**Global initialization** (always, including xdist workers):
+- Registers `HostRegistry().cleanup` as an exit artifact on the module-level
+  `artifacts` instance (from `artifact_registry.py`).
 
 **Environment preparation** (main process only, if test.py hasn't prepared):
 - Calls `prepare_environment()` with tmpdir, modes, gather_metrics,
@@ -197,8 +200,8 @@ Runs during session teardown.
 2. **Resource watcher shutdown** (non-worker, non-test.py): calls
    `_stop_resource_watcher()` to stop the background monitoring thread.
 
-3. **Artifact cleanup** (non-worker, non-test.py): calls
-   `asyncio.run(TestSuite.artifacts.cleanup_before_exit())`.
+3. **Artifact cleanup** (non-worker): calls
+   `asyncio.run(artifacts.cleanup_before_exit())`.
 
 4. **Exit code**: if `maxfail > 0` and `testsfailed >= maxfail`, sets
    `session.exitstatus = EXIT_MAXFAIL_REACHED` (11) for CI detection.
@@ -476,7 +479,7 @@ record, and writes to the `SYSTEM_RESOURCE_METRICS_TABLE`.
 | Symbol | Usage |
 |--------|-------|
 | `PYTEST_TESTS_LOGS_FOLDER` | `pytest_runtest_makereport` -- failure log directory |
-| `TestSuite.artifacts` | `pytest_sessionstart` (exit artifact), `pytest_sessionfinish` (cleanup) |
+| `artifacts` (module-level) | `pytest_sessionstart` (exit artifact registration), `pytest_sessionfinish` (cleanup), `start_3rd_party_services` (exit artifacts), `suite.py:create_cluster` (suite/exit artifacts) |
 | `HostRegistry()` (singleton) | `pytest_sessionstart` (cleanup registration) |
 | `prepare_environment()` | `pytest_sessionstart` -- directory and service setup |
 | `Test` | `testpy_test` fixture -- creates Test instances |
@@ -490,7 +493,7 @@ record, and writes to the `SYSTEM_RESOURCE_METRICS_TABLE`.
 
 2. **`TestSuiteConfig` vs `TestSuite`**: `TestSuiteConfig` is deliberately
    lightweight -- it reads YAML, merges CLI options once, and computes disabled
-   tests. Full `TestSuite` instances (with cluster pools, artifacts, etc.) are
+   tests. Full `TestSuite` instances (with cluster pools, etc.) are
    created lazily via `opt_create()` in the `testpy_test` fixture (which accepts
    the `TestSuiteConfig` directly), not during collection.
 
@@ -520,7 +523,7 @@ pytest_configure()
     |-- compute build_modes, run_ids
     v
 pytest_sessionstart()
-    |-- TestSuite.artifacts = ArtifactRegistry()
+    |-- artifacts.add_exit_artifact(HostRegistry().cleanup)
     |-- prepare_environment()     ------> directories, 3rd-party services
     |-- _start_resource_watcher() ------> daemon thread polling CPU/memory
     v
@@ -548,6 +551,6 @@ pytest_runtest_logreport()
 pytest_sessionfinish()
     |-- clean up log files
     |-- _stop_resource_watcher()  ------> stop daemon thread
-    |-- TestSuite.artifacts.cleanup_before_exit()
+    |-- artifacts.cleanup_before_exit()
     |-- set EXIT_MAXFAIL_REACHED if applicable
 ```

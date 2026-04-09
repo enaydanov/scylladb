@@ -119,7 +119,6 @@ Tests not mentioned in any `run_in_*` directive run in all modes.
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `suites` | `dict[str, TestSuite]` | Global registry of all suite instances, keyed by `"path/mode"`. Serves as a singleton cache. |
-| `artifacts` | `ArtifactRegistry` | Global artifact/cleanup registry. Set once in `pytest_sessionstart()`. |
 
 ### 4.2 Constructor
 
@@ -170,7 +169,8 @@ The pool's recycle callback delegates to `ScyllaCluster.recycle()`, which:
    cluster size, mode, command-line options, config options, environment).
    Server creation logic (command-line merging, config assembly, `ScyllaServer`
    construction) lives in `ScyllaCluster.add_server()`.
-2. Registers `cluster.stop` as both a suite artifact and an exit artifact.
+2. Registers `cluster.stop` as both a suite artifact and an exit artifact
+   (via the module-level `artifacts` instance in `artifact_registry.py`).
 3. If `save_log_on_success` is false, also registers `cluster.uninstall` as a
    suite artifact.
 4. Calls `install_and_start()` on the cluster.
@@ -298,9 +298,10 @@ tests and apply mode restrictions without creating full `TestSuite` instances.
 It walks up the pytest node tree to find the config file and stores
 the result in the stash, which the `testpy_test` fixture then reads.
 
-**Session setup**: creates `TestSuite.artifacts` and calls `prepare_environment()`
-during pytest session start (unconditionally for non-xdist-worker processes
-to prevent double-initialization when test.py has already prepared the environment).
+**Session setup**: registers host cleanup on the module-level `artifacts` registry
+(from `artifact_registry.py`) and calls `prepare_environment()` during pytest
+session start (unconditionally for non-xdist-worker processes to prevent
+double-initialization when test.py has already prepared the environment).
 
 > **Note:** `runner.py` is only loaded as a pytest plugin when
 > `TEST_RUNNER != "runpy"`.  In runpy mode (`test/cqlpy/run`,
@@ -327,13 +328,15 @@ infrastructure:
 
 ### 7.4 Artifact Lifecycle
 
-The `ArtifactRegistry` manages two levels of cleanup:
+The module-level `artifacts` instance (in `artifact_registry.py`) manages two
+levels of cleanup:
 
-- **Suite artifacts**: registered via `add_suite_artifact(suite, fn)`. Cleaned up
-  when all tests in a suite complete. Includes cluster `stop` and `uninstall`.
-- **Exit artifacts**: registered via `add_exit_artifact(suite, fn)`. Cleaned up
-  at process exit. Includes third-party services (LDAP, MinIO, S3 mock, S3 proxy)
-  and cluster `stop` as a safety net.
+- **Suite artifacts**: registered via `artifacts.add_suite_artifact(suite, fn)`.
+  Cleaned up when all tests in a suite complete. Includes cluster `stop` and
+  `uninstall`.
+- **Exit artifacts**: registered via `artifacts.add_exit_artifact(suite, fn)`.
+  Cleaned up at process exit. Includes third-party services (LDAP, MinIO, S3
+  mock, S3 proxy) and cluster `stop` as a safety net.
 
 ---
 
@@ -380,7 +383,7 @@ testpy_test fixture
        |
        v
    pytest_sessionfinish
-       | TestSuite.artifacts.cleanup_before_exit()
+       | artifacts.cleanup_before_exit()  (module-level in artifact_registry.py)
 ```
 
 ### 8.3 Cluster Lifecycle
