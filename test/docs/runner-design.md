@@ -53,7 +53,6 @@ From `test.pylib.suite`:
 
 Defined directly in `runner.py` (moved from `suite.py`):
 - `PYTEST_TESTS_LOGS_FOLDER` -- subdirectory name for failure logs
-- `init_testsuite_globals` -- one-time global setup
 - `prepare_dir` -- single directory preparation/cleanup
 - `prepare_dirs` -- creates the full directory tree for a test run
 - `start_3rd_party_services` -- starts LDAP, MinIO, S3 mock, S3 proxy
@@ -177,8 +176,8 @@ Runs during session startup. Gates:
 - Skips if `TEST_RUNNER != "pytest"` or `--collect-only`.
 
 **Global initialization** (xdist workers or if test.py hasn't prepared):
-- Calls `init_testsuite_globals()`.
-- Registers `TestSuite.hosts.cleanup` as an exit artifact.
+- Creates `TestSuite.artifacts = ArtifactRegistry()`.
+- Registers `HostRegistry().cleanup` as an exit artifact.
 
 **Environment preparation** (main process only, if test.py hasn't prepared):
 - Calls `prepare_environment()` with tmpdir, modes, gather_metrics,
@@ -478,8 +477,7 @@ record, and writes to the `SYSTEM_RESOURCE_METRICS_TABLE`.
 |--------|-------|
 | `PYTEST_TESTS_LOGS_FOLDER` | `pytest_runtest_makereport` -- failure log directory |
 | `TestSuite.artifacts` | `pytest_sessionstart` (exit artifact), `pytest_sessionfinish` (cleanup) |
-| `TestSuite.hosts` | `pytest_sessionstart` (cleanup registration) |
-| `init_testsuite_globals()` | `pytest_sessionstart` -- global setup |
+| `HostRegistry()` (singleton) | `pytest_sessionstart` (cleanup registration) |
 | `prepare_environment()` | `pytest_sessionstart` -- directory and service setup |
 | `Test` | `testpy_test` fixture -- creates Test instances |
 | `SystemResourceMetric` | `_resource_monitor_loop` -- metric records |
@@ -522,7 +520,7 @@ pytest_configure()
     |-- compute build_modes, run_ids
     v
 pytest_sessionstart()
-    |-- init_testsuite_globals()  ------> TestSuite.artifacts, TestSuite.hosts
+    |-- TestSuite.artifacts = ArtifactRegistry()
     |-- prepare_environment()     ------> directories, 3rd-party services
     |-- _start_resource_watcher() ------> daemon thread polling CPU/memory
     v

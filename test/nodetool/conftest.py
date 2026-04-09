@@ -20,6 +20,7 @@ from test import TOP_SRC_DIR, path_to
 from test.nodetool.rest_api_mock import set_expected_requests, expected_request, get_expected_requests, \
     get_unexpected_requests, expected_requests_manager
 from test.pylib.db.model import Test
+from test.pylib.host_registry import HostRegistry
 from test.pylib.runner import testpy_test_fixture_scope
 
 
@@ -57,7 +58,7 @@ async def server_address(request, testpy_test: None|Test):
         port = 12345
     else:
         if testpy_test is not None:
-            ip = await testpy_test.suite.hosts.lease_host()
+            ip = await HostRegistry().lease_host()
         else:
             ip = f"127.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}"
         # Ask the OS to pick a free port by binding to port 0. This avoids
@@ -70,7 +71,7 @@ async def server_address(request, testpy_test: None|Test):
             port = s.getsockname()[1]
     yield ServerAddress(ip, port)
     if testpy_test is not None:
-        await testpy_test.suite.hosts.release_host(ip)
+        await HostRegistry().release_host(ip)
 
 
 @pytest.fixture(scope=testpy_test_fixture_scope)

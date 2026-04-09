@@ -15,6 +15,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING
 
 from test import path_to
+from test.pylib.host_registry import HostRegistry
 from test.pylib.pool import Pool
 from test.pylib.scylla_cluster import ScyllaCluster
 from test.pylib.util import LogPrefixAdapter, get_xdist_worker_id
@@ -23,7 +24,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from test.pylib.artifact_registry import ArtifactRegistry
-    from test.pylib.host_registry import HostRegistry
     from test.pylib.runner import TestSuiteConfig
 
 
@@ -37,7 +37,6 @@ class TestSuite:
     suites: dict[str, TestSuite] = {}
 
     artifacts: ArtifactRegistry
-    hosts: HostRegistry
 
 
     def __init__(self, path: str, cfg: dict, options: argparse.Namespace, mode: str) -> None:
@@ -89,7 +88,7 @@ class TestSuite:
         cluster = ScyllaCluster(
             logger=logger,
             vardir=self.log_dir,
-            host_registry=self.hosts,
+            host_registry=HostRegistry(),
             replicas=self.cfg.get("cluster", {"initial_size": 1})["initial_size"],
             mode=self.mode,
             cmdline_options=self.cfg.get("extra_scylla_cmdline_options", []),

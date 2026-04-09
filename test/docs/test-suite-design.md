@@ -119,8 +119,7 @@ Tests not mentioned in any `run_in_*` directive run in all modes.
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `suites` | `dict[str, TestSuite]` | Global registry of all suite instances, keyed by `"path/mode"`. Serves as a singleton cache. |
-| `artifacts` | `ArtifactRegistry` | Global artifact/cleanup registry. Set once by `init_testsuite_globals()`. |
-| `hosts` | `HostRegistry` | Global host/IP registry for leasing network addresses. Set once by `init_testsuite_globals()`. |
+| `artifacts` | `ArtifactRegistry` | Global artifact/cleanup registry. Set once in `pytest_sessionstart()`. |
 
 ### 4.2 Constructor
 
@@ -224,7 +223,7 @@ live in `test/pylib/terminal.py`.
 
 The following functions have been moved to `runner.py` (see
 [runner-design.md](runner-design.md)):
-- `init_testsuite_globals()` -- creates `ArtifactRegistry` / `HostRegistry`
+- `ArtifactRegistry` initialization -- inlined into `pytest_sessionstart()`
 - `prepare_dir()` -- single directory preparation/cleanup
 - `prepare_dirs()` -- creates the full directory tree for a test run
 - `start_3rd_party_services()` -- starts LDAP, MinIO, S3 mock, S3 proxy
@@ -299,7 +298,7 @@ tests and apply mode restrictions without creating full `TestSuite` instances.
 It walks up the pytest node tree to find the config file and stores
 the result in the stash, which the `testpy_test` fixture then reads.
 
-**Session setup**: calls `init_testsuite_globals()` and `prepare_environment()`
+**Session setup**: creates `TestSuite.artifacts` and calls `prepare_environment()`
 during pytest session start (unconditionally for non-xdist-worker processes
 to prevent double-initialization when test.py has already prepared the environment).
 

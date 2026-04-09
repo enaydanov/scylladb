@@ -234,13 +234,6 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 
-def init_testsuite_globals() -> None:
-    """Create global objects required for a test run."""
-
-    TestSuite.artifacts = ArtifactRegistry()
-    TestSuite.hosts = HostRegistry()
-
-
 def prepare_dir(dirname: pathlib.Path, pattern: str, save_log_on_success: bool) -> None:
     # Ensure the dir exists.
     dirname.mkdir(parents=True, exist_ok=True)
@@ -329,8 +322,8 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     is_xdist_worker = xdist.is_xdist_worker(request_or_session=session)
 
     # Initialize globals — always needed (xdist workers run in separate processes)
-    init_testsuite_globals()
-    TestSuite.artifacts.add_exit_artifact(None, TestSuite.hosts.cleanup)
+    TestSuite.artifacts = ArtifactRegistry()
+    TestSuite.artifacts.add_exit_artifact(None, HostRegistry().cleanup)
 
     # Prepare environment just once in the main pytest process (not in xdist workers)
     if not is_xdist_worker:

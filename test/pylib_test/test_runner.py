@@ -89,12 +89,11 @@ class TestHookBehavior:
 
     @patch("test.pylib.runner.prepare_environment")
     @patch("test.pylib.runner.TestSuite")
-    @patch("test.pylib.runner.init_testsuite_globals")
     @patch("test.pylib.runner.xdist")
     @patch("test.pylib.runner.TEST_RUNNER", "pytest")
     @patch("test.pylib.runner.get_modes_to_run", return_value=["debug"])
     def test_sessionstart_proceeds_for_pytest_runner(
-        self, mock_get_modes, mock_xdist, mock_init, mock_ts, mock_prep
+        self, mock_get_modes, mock_xdist, mock_ts, mock_prep
     ):
         """pytest_sessionstart initializes the environment for the pytest runner."""
         mock_xdist.is_xdist_worker.return_value = False
@@ -107,16 +106,15 @@ class TestHookBehavior:
             "--byte-limit": 100,
         }[opt]
         pytest_sessionstart(session)
-        mock_init.assert_called_once()
         mock_prep.assert_called_once()
 
-    @patch("test.pylib.runner.init_testsuite_globals")
+    @patch("test.pylib.runner.ArtifactRegistry")
     @patch("test.pylib.runner.TEST_RUNNER", "runpy")
-    def test_sessionstart_skips_for_runpy(self, mock_init):
+    def test_sessionstart_skips_for_runpy(self, mock_ar):
         """pytest_sessionstart still returns early when TEST_RUNNER is 'runpy'."""
         session = MagicMock()
         pytest_sessionstart(session)
-        mock_init.assert_not_called()
+        mock_ar.assert_not_called()
 
     @patch("test.pylib.runner.xdist")
     def test_sessionfinish_always_runs(self, mock_xdist):
@@ -242,12 +240,11 @@ class TestResourceWatcher:
     @patch("test.pylib.runner._start_resource_watcher")
     @patch("test.pylib.runner.prepare_environment")
     @patch("test.pylib.runner.TestSuite")
-    @patch("test.pylib.runner.init_testsuite_globals")
     @patch("test.pylib.runner.xdist")
     @patch("test.pylib.runner.TEST_RUNNER", "pytest")
     @patch("test.pylib.runner.get_modes_to_run", return_value=["debug"])
     def test_sessionstart_starts_watcher_when_gather_metrics(
-        self, mock_get_modes, mock_xdist, mock_init, mock_ts, mock_prep, mock_start
+        self, mock_get_modes, mock_xdist, mock_ts, mock_prep, mock_start
     ):
         """pytest_sessionstart starts the resource watcher when --gather-metrics is True."""
         mock_xdist.is_xdist_worker.return_value = False
@@ -265,12 +262,11 @@ class TestResourceWatcher:
     @patch("test.pylib.runner._start_resource_watcher")
     @patch("test.pylib.runner.prepare_environment")
     @patch("test.pylib.runner.TestSuite")
-    @patch("test.pylib.runner.init_testsuite_globals")
     @patch("test.pylib.runner.xdist")
     @patch("test.pylib.runner.TEST_RUNNER", "pytest")
     @patch("test.pylib.runner.get_modes_to_run", return_value=["debug"])
     def test_sessionstart_skips_watcher_when_no_gather_metrics(
-        self, mock_get_modes, mock_xdist, mock_init, mock_ts, mock_prep, mock_start
+        self, mock_get_modes, mock_xdist, mock_ts, mock_prep, mock_start
     ):
         """pytest_sessionstart does not start the resource watcher when --gather-metrics is False."""
         mock_xdist.is_xdist_worker.return_value = False
@@ -399,12 +395,11 @@ class TestNoTestpyPreparedEnvironment:
 
     @patch("test.pylib.runner.prepare_environment")
     @patch("test.pylib.runner.TestSuite")
-    @patch("test.pylib.runner.init_testsuite_globals")
     @patch("test.pylib.runner.xdist")
     @patch("test.pylib.runner.TEST_RUNNER", "pytest")
     @patch("test.pylib.runner.get_modes_to_run", return_value=["debug"])
     def test_sessionstart_unconditionally_initializes(
-        self, mock_get_modes, mock_xdist, mock_init, mock_ts, mock_prep
+        self, mock_get_modes, mock_xdist, mock_ts, mock_prep
     ):
         """pytest_sessionstart always initializes globals (no TESTPY_PREPARED_ENVIRONMENT gate)."""
         mock_xdist.is_xdist_worker.return_value = False
@@ -419,7 +414,6 @@ class TestNoTestpyPreparedEnvironment:
         # Even with the env var set, initialization should proceed
         with patch.dict(os.environ, {"TESTPY_PREPARED_ENVIRONMENT": "1"}, clear=False):
             pytest_sessionstart(session)
-        mock_init.assert_called_once()
         mock_prep.assert_called_once()
 
     @patch("test.pylib.runner._stop_resource_watcher")

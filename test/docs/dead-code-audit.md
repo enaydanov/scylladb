@@ -72,8 +72,8 @@ Each symbol was classified as:
 | Method / Attribute | Category | Status | Justification |
 |--------------------|----------|--------|---------------|
 | `suites` (class dict) | SHARED | 🔄 REMAINING | Used by `opt_create()` and `all_tests()` |
-| `artifacts` (class attr) | SHARED | 🔄 REMAINING | Set by `init_testsuite_globals()`; used by `runner.py` and `test.py` |
-| `hosts` (class attr) | SHARED | 🔄 REMAINING | Set by `init_testsuite_globals()`; used by `runner.py` and `test.py` |
+| `artifacts` (class attr) | SHARED | 🔄 REMAINING | Set in `pytest_sessionstart()`; used by `runner.py` and `test.py` |
+| `hosts` (class attr) | SHARED | ✅ REMOVED | Replaced by `HostRegistry()` singleton calls |
 | `FLAKY_RETRIES` | LEGACY-ONLY | ✅ REMOVED | Only used in `TestSuite.run()` |
 | `_next_id` | SHARED | ✅ REMOVED | Removed — `run_id` is now passed directly to `Test.__init__()` from the pytest stash |
 | `__init__()` | SHARED | 🔄 REMAINING | Called by all subclass constructors via `opt_create()` |
@@ -112,7 +112,7 @@ Each symbol was classified as:
 
 | Function | Category | Status | Justification |
 |----------|----------|--------|---------------|
-| `init_testsuite_globals()` | SHARED | ✅ MOVED | Moved to `runner.py` |
+| `init_testsuite_globals()` | SHARED | ✅ REMOVED | Inlined into `pytest_sessionstart()` |
 | `read_log()` | INTERNAL-LEGACY | ✅ REMOVED | Removed in Phase 4 — all callers (`print_summary()` methods) also removed |
 | `run_test()` | LEGACY-ONLY | ✅ REMOVED | Only called from `Test.run()` implementations; 112 lines, the largest single block of dead code removed |
 | `prepare_dir()` | INTERNAL-SHARED | ✅ MOVED | Moved to `runner.py` |
@@ -253,7 +253,7 @@ re-export was removed.
 | `test.pylib.resource_gather.run_resource_watcher` | ✅ REMOVED | Removed in Phase 3 — resource watcher moved to runner.py |
 | `test.pylib.util.LogPrefixAdapter` | ✅ REMOVED | Removed in Phase 3 — `process_coverage()` deleted |
 | `output_is_a_tty` (from suite.base) | ✅ REMOVED (Phase 1) | Was only used by `TabularConsoleOutput` |
-| `init_testsuite_globals` (from suite.base) | ✅ REMOVED | Removed in Phase 3 — runner.py handles initialization |
+| `init_testsuite_globals` (from suite.base) | ✅ REMOVED | Inlined into `pytest_sessionstart()` |
 | `prepare_environment` (from suite.base) | ✅ REMOVED | Removed in Phase 3 — runner.py handles environment setup |
 | `TestSuite` (from suite.base) | ✅ REMOVED | Removed in Phase 3 — runner.py handles artifacts/cleanup |
 | `TESTPY_PREPARED_ENVIRONMENT` (from test) | ✅ REMOVED | Removed in Phase 3 — test.py no longer sets this env var |
