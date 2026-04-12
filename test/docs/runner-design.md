@@ -129,7 +129,6 @@ Registers the following options:
 | `--save-log-on-success` | `bool` | `False` | Keep success logs |
 | `--coverage` | `bool` | `False` | Coverage support |
 | `--coverage-mode` | `list[str]` | `None` | Per-mode coverage |
-| `--cluster-pool-size` | `int` | `None` | Pool size override |
 | `--extra-scylla-cmdline-options` | `str` | `""` | Extra Scylla CLI options |
 | `--x-log2-compaction-groups` | `int` | `0` | Compaction group count |
 | `--repeat` | `int` | `1` | Repeat count |

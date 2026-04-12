@@ -29,7 +29,6 @@ class TestPoolSize:
         mock_options,
         cfg_pool=None,
         env_pool=None,
-        opt_pool=None,
         mode="dev",
     ):
         from test.pylib.suite import TestSuite
@@ -39,7 +38,6 @@ class TestPoolSize:
         cfg = {}
         if cfg_pool is not None:
             cfg["pool_size"] = cfg_pool
-        mock_options.cluster_pool_size = opt_pool
         env = {}
         if env_pool is not None:
             env["CLUSTER_POOL_SIZE"] = str(env_pool)
@@ -70,14 +68,3 @@ class TestPoolSize:
         _, size = self._make(tmp_path, mock_options, cfg_pool=5, env_pool=7)
         assert size == 7
 
-    def test_option_overrides_env(self, tmp_path, mock_options):
-        """options.cluster_pool_size overrides env var."""
-        _, size = self._make(
-            tmp_path, mock_options, cfg_pool=5, env_pool=7, opt_pool=10
-        )
-        assert size == 10
-
-    def test_option_overrides_cfg(self, tmp_path, mock_options):
-        """options.cluster_pool_size overrides YAML even without env."""
-        _, size = self._make(tmp_path, mock_options, cfg_pool=5, opt_pool=3)
-        assert size == 3

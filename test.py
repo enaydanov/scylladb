@@ -13,6 +13,7 @@ import argparse
 import math
 import shlex
 import textwrap
+import warnings
 from random import randint
 
 import pytest
@@ -198,6 +199,14 @@ def parse_cmd_line() -> argparse.Namespace:
                              help="Random number generator seed to be used by boost tests")
 
     args = parser.parse_args()
+
+    if args.cluster_pool_size is not None:
+        warnings.warn(
+            "--cluster-pool-size is deprecated and has no effect. "
+            "Use the CLUSTER_POOL_SIZE environment variable instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     if args.skip_patterns and args.k:
         parser.error(palette.fail('arguments --skip and -k are mutually exclusive, please use only one of them'))

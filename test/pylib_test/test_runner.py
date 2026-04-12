@@ -462,28 +462,6 @@ class TestRunIdOption:
 
 
 # ---------------------------------------------------------------------------
-# Help text — no reference to deleted PythonTest class
-# ---------------------------------------------------------------------------
-
-
-class TestHelpTextNoPythonTest:
-    """Verify that CLI help text references TestSuite, not the deleted PythonTest."""
-
-    def test_cluster_pool_size_help_no_pythontest(self):
-        """--cluster-pool-size help text must not reference PythonTest."""
-        parser = MagicMock()
-        pytest_addoption(parser)
-        for call_obj in parser.addoption.call_args_list:
-            if "--cluster-pool-size" in call_obj.args:
-                help_text = call_obj.kwargs.get("help", "")
-                assert "PythonTest" not in help_text, (
-                    f"Help text still references deleted PythonTest class: {help_text}"
-                )
-                break
-        else:
-            pytest.fail("--cluster-pool-size option not found")
-
-# ---------------------------------------------------------------------------
 # testpy_test fixture — suite creation and caching (inlined from opt_create)
 # ---------------------------------------------------------------------------
 
@@ -503,7 +481,7 @@ class TestTestpyTestSuiteCaching:
         suite_dir.mkdir()
         options = MagicMock(
             tmpdir=str(tmp_path), coverage=False, coverage_modes=[],
-            save_log_on_success=False, cluster_pool_size=None,
+            save_log_on_success=False,
             extra_scylla_cmdline_options="",
         )
 
@@ -528,7 +506,7 @@ class TestTestpyTestSuiteCaching:
         suite_dir.mkdir()
         options = MagicMock(
             tmpdir=str(tmp_path), coverage=False, coverage_modes=[],
-            save_log_on_success=False, cluster_pool_size=None,
+            save_log_on_success=False,
             extra_scylla_cmdline_options="",
         )
 
@@ -555,7 +533,7 @@ class TestTestpyTestSuiteCaching:
         suite_dir.mkdir()
         options = MagicMock(
             tmpdir=str(tmp_path), coverage=False, coverage_modes=[],
-            save_log_on_success=False, cluster_pool_size=None,
+            save_log_on_success=False,
             extra_scylla_cmdline_options="",
         )
 

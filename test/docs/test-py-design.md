@@ -103,7 +103,7 @@ following arguments:
 | `--markers` | `str` | `None` | Pytest mark expression |
 | `--coverage` | `bool` | `False` | Enable coverage processing |
 | `--coverage-mode` | `list[str]` | `None` | Coverage for specific modes |
-| `--cluster-pool-size` | `int` | `None` | Override cluster pool size |
+| `--cluster-pool-size` | `int` | `None` | Deprecated (no-op). Use `CLUSTER_POOL_SIZE` env var instead. |
 | `--byte-limit` | `int` | `randint(0,2000)` | Failure injection byte limit |
 | `--pytest-arg` | `str` | `None` | Extra pytest arguments |
 | `--exe-path` | `str` | `False` | Custom executable path |

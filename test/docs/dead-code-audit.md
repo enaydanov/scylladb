@@ -81,6 +81,7 @@ Each symbol was classified as:
 | `test_count()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — zero callers remained |
 | `load_cfg()` | SHARED | ✅ REMOVED | Deleted — `opt_create()` now takes `TestSuiteConfig` (already-parsed YAML) |
 | `opt_create()` | SHARED | ✅ REMOVED | Inlined into `testpy_test` fixture in `runner.py` |
+| `--cluster-pool-size` (runner.py) | SHARED | ✅ REMOVED | Never forwarded by `test.py`; use `CLUSTER_POOL_SIZE` env var instead |
 | `all_tests()` | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — callers removed in Phase 3 |
 | `pattern` (abstract property) | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 — only consumed by deleted `build_test_list()` |
 | `add_test()` (abstract) | SHARED | ✅ REMOVED | Was called from `get_testpy_test()` which has been inlined; `Test` is now created directly in `testpy_test` fixture |

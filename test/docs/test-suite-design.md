@@ -88,7 +88,7 @@ config.
 | `flaky` | `list[string]` | `[]` | `TestSuiteConfig` (runner.py) | Tests that are known-flaky (retained in config for historical tracking). |
 | `coverage` | `bool` | `true` | `TestSuite.need_coverage()` | Whether to enable code coverage for this suite. |
 | `cluster` | `mapping` | `{"initial_size": 1}` | `TestSuite.__init__` | Cluster configuration. Sub-key `initial_size` controls the number of nodes. |
-| `pool_size` | `int` | `2` | `TestSuite.__init__` | Number of clusters in the reuse pool. Overridden by CLI `--cluster-pool-size` or env `CLUSTER_POOL_SIZE`. |
+| `pool_size` | `int` | `2` | `TestSuite.__init__` | Number of clusters in the reuse pool. Overridden by env `CLUSTER_POOL_SIZE`. |
 | `extra_scylla_cmdline_options` | `list[string]` or `string` | `[]` | `TestSuite.create_cluster()` → `ScyllaCluster.add_server()` | Additional Scylla command-line flags. Merged with test-level and CLI-level options. |
 | `extra_scylla_config_options` | `mapping` | `{}` | `TestSuite.create_cluster()` → `ScyllaCluster.add_server()` | Additional Scylla config file options. Merged with defaults and test-level config. |
 | `custom_args` | `mapping[string, list[string]]` | `{}` | (Boost/unit suites, outside this framework) | Per-test custom arguments. Not consumed by the Python suite classes. |
@@ -148,10 +148,9 @@ the current mode is in the coverage modes, and the suite config does not set
 
 **`clusters`** (`@cached_property` → `Pool`): lazily creates the cluster pool
 on first access. The **pool size** is resolved with the following priority:
-1. `options.cluster_pool_size` (CLI flag)
-2. `CLUSTER_POOL_SIZE` environment variable
-3. `cfg["pool_size"]`
-4. Default: `2`
+1. `CLUSTER_POOL_SIZE` environment variable
+2. `cfg["pool_size"]`
+3. Default: `2`
 
 The pool's recycle callback delegates to `ScyllaCluster.recycle()`, which:
 - Closes log files and cleans up maintenance socket directories for each server.

@@ -48,7 +48,6 @@ def mock_options(tmp_path: pathlib.Path) -> argparse.Namespace:
         repeat=1,
         skip_patterns=None,
         # TestSuite needs these
-        cluster_pool_size=None,
         extra_scylla_cmdline_options="",
     )
 

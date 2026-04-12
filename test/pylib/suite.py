@@ -59,9 +59,7 @@ class TestSuite:
     @cached_property
     def clusters(self) -> Pool:
         env_pool_size = os.getenv("CLUSTER_POOL_SIZE")
-        if self.options.cluster_pool_size is not None:
-            pool_size = self.options.cluster_pool_size
-        elif env_pool_size is not None:
+        if env_pool_size is not None:
             pool_size = int(env_pool_size)
         else:
             pool_size = self.cfg.get("pool_size", 2)

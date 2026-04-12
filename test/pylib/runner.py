@@ -150,9 +150,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
                           "The lcov files can eventually be used for generating coverage reports")
     parser.addoption("--coverage-mode", action='append', type=str, dest="coverage_modes",
                      help="Collect and process coverage only for the modes specified. implies: --coverage, default: All built modes")
-    parser.addoption("--cluster-pool-size", type=int,
-                     help="Set the cluster pool size for test suites.  Alternatively environment variable "
-                          "CLUSTER_POOL_SIZE can be used to achieve the same")
     parser.addoption("--extra-scylla-cmdline-options", default='',
                      help="Passing extra scylla cmdline options for all tests.  Options should be space separated:"
                           " '--logger-log-level raft=trace --default-log-level error'")
