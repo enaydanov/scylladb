@@ -90,7 +90,7 @@ Each symbol was classified as:
 | `boost_tests()` | ALREADY-DEAD | ✅ REMOVED | No callers found anywhere |
 | `build_test_list()` | LEGACY-ONLY | ✅ REMOVED | Only called by `add_test_list()` |
 | `add_test_list()` | LEGACY-ONLY | ✅ REMOVED | Only called from `test.py` |
-| `need_coverage()` | SHARED | 🔄 REMAINING | Called in `__init__()` for env setup (shared); standalone call only from `test.py` |
+| `need_coverage()` | SHARED | ✅ REMOVED | Inlined into `create_cluster()` — coverage env is now computed at cluster creation time |
 
 ### `Test` Class
 

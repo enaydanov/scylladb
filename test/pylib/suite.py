@@ -41,17 +41,6 @@ class TestSuite:
         self.cfg = cfg
         self.options = options
         self.mode = mode
-        # environment variables that should be the base of all processes running in this suit
-        self.base_env = {}
-        if self.need_coverage():
-            # Set the coverage data from each instrumented object to use the same file (and merged into it with locking)
-            # as long as we don't need test specific coverage data, this looks sufficient. The benefit of doing this in
-            # this way is that the storage will not be bloated with coverage files (each can weigh 10s of MBs so for several
-            # thousands of tests it can easily reach 10 of GBs)
-            # ref: https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program
-            self.base_env["LLVM_PROFILE_FILE"] = str(self.log_dir / "coverage" / self.name / "%m.profraw")
-
-
 
 
     @cached_property
@@ -64,6 +53,16 @@ class TestSuite:
         return Pool(pool_size, self.create_cluster, lambda cluster: cluster.recycle())
 
     async def create_cluster(self, logger: logging.Logger | logging.LoggerAdapter) -> ScyllaCluster:
+        # Compute coverage environment inline (was formerly self.base_env / need_coverage())
+        append_env = {}
+        if self.options.coverage and (self.mode in self.options.coverage_modes) and self.cfg.get("coverage", True):
+            # Set the coverage data from each instrumented object to use the same file (and merged into it with locking)
+            # as long as we don't need test specific coverage data, this looks sufficient. The benefit of doing this in
+            # this way is that the storage will not be bloated with coverage files (each can weigh 10s of MBs so for several
+            # thousands of tests it can easily reach 10 of GBs)
+            # ref: https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program
+            append_env["LLVM_PROFILE_FILE"] = str(self.log_dir / "coverage" / self.name / "%m.profraw")
+
         cluster = ScyllaCluster(
             logger=logger,
             vardir=self.log_dir,
@@ -73,7 +72,7 @@ class TestSuite:
             cmdline_options=self.cfg.get("extra_scylla_cmdline_options", []),
             cmdline_options_override=self.options.extra_scylla_cmdline_options,
             config_options=self.cfg.get("extra_scylla_config_options", {}),
-            append_env=self.base_env,
+            append_env=append_env,
             scylla_exe=self.scylla_exe,
         )
 
@@ -99,10 +98,6 @@ class TestSuite:
                 pass  # Ignore cleanup errors
             raise cluster.start_exception
         return cluster
-
-
-    def need_coverage(self):
-        return self.options.coverage and (self.mode in self.options.coverage_modes) and bool(self.cfg.get("coverage",True))
 
 
 class Test:

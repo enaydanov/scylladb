@@ -14,7 +14,7 @@ ensuring that Phase 1 dead-code removal doesn't break shared behaviour.
 import argparse
 import os
 import pathlib
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from test.pylib.suite import (
@@ -75,10 +75,15 @@ class TestTestRunId:
 # ===================================================================
 
 
-class TestNeedCoverage:
-    """Tests for the 3-way boolean gate TestSuite.need_coverage()."""
+class TestCoverageEnvInCreateCluster:
+    """Tests that create_cluster() computes the coverage append_env correctly.
 
-    def _make(
+    The 3-way boolean gate (options.coverage AND mode in coverage_modes AND
+    cfg.get("coverage", True)) is now inlined in create_cluster().  These
+    tests mock ScyllaCluster to verify the append_env kwarg.
+    """
+
+    def _make_suite(
         self,
         mock_options,
         tmp_path,
@@ -92,33 +97,68 @@ class TestNeedCoverage:
         suite_dir.mkdir(exist_ok=True)
         mock_options.coverage = opt_coverage
         mock_options.coverage_modes = opt_modes or ["debug"]
-        return _make_python_suite(str(suite_dir), cfg, mock_options, mode)
+        suite = _make_python_suite(str(suite_dir), cfg, mock_options, mode)
+        suite.scylla_exe = "/usr/bin/scylla"
+        return suite
 
-    def test_all_true(self, mock_options, tmp_path):
-        suite = self._make(mock_options, tmp_path)
-        assert suite.need_coverage() is True
+    async def _call_create_cluster(self, suite, mock_cluster):
+        """Call create_cluster() with a mocked ScyllaCluster and return the append_env kwarg."""
+        mock_cluster.return_value = mock_cluster
+        mock_cluster.start_exception = None
+        mock_cluster.stop = AsyncMock()
+        mock_cluster.uninstall = AsyncMock()
+        mock_cluster.install_and_start = AsyncMock()
+        logger = MagicMock()
+        with patch("test.pylib.suite.artifacts"):
+            await suite.create_cluster(logger)
+        return mock_cluster.call_args.kwargs["append_env"]
 
-    def test_options_coverage_false(self, mock_options, tmp_path):
-        suite = self._make(mock_options, tmp_path, opt_coverage=False)
-        assert suite.need_coverage() is False
+    @pytest.mark.asyncio
+    async def test_coverage_enabled(self, mock_options, tmp_path):
+        """When all 3 conditions are true, append_env has LLVM_PROFILE_FILE."""
+        suite = self._make_suite(mock_options, tmp_path)
+        with patch("test.pylib.suite.ScyllaCluster") as mock_cluster:
+            append_env = await self._call_create_cluster(suite, mock_cluster)
+        assert "LLVM_PROFILE_FILE" in append_env
+        assert "%m.profraw" in append_env["LLVM_PROFILE_FILE"]
 
-    def test_mode_not_in_coverage_modes(self, mock_options, tmp_path):
-        suite = self._make(mock_options, tmp_path, opt_modes=["release"])
-        assert suite.need_coverage() is False
+    @pytest.mark.asyncio
+    async def test_options_coverage_false(self, mock_options, tmp_path):
+        """When options.coverage is False, append_env is empty."""
+        suite = self._make_suite(mock_options, tmp_path, opt_coverage=False)
+        with patch("test.pylib.suite.ScyllaCluster") as mock_cluster:
+            append_env = await self._call_create_cluster(suite, mock_cluster)
+        assert append_env == {}
 
-    def test_cfg_coverage_false(self, mock_options, tmp_path):
-        suite = self._make(mock_options, tmp_path, cfg_coverage=False)
-        assert suite.need_coverage() is False
+    @pytest.mark.asyncio
+    async def test_mode_not_in_coverage_modes(self, mock_options, tmp_path):
+        """When mode is not in coverage_modes, append_env is empty."""
+        suite = self._make_suite(mock_options, tmp_path, opt_modes=["release"])
+        with patch("test.pylib.suite.ScyllaCluster") as mock_cluster:
+            append_env = await self._call_create_cluster(suite, mock_cluster)
+        assert append_env == {}
 
-    def test_cfg_coverage_absent_defaults_true(self, mock_options, tmp_path):
-        """When 'coverage' key is missing from YAML, defaults to True."""
+    @pytest.mark.asyncio
+    async def test_cfg_coverage_false(self, mock_options, tmp_path):
+        """When cfg sets coverage: false, append_env is empty."""
+        suite = self._make_suite(mock_options, tmp_path, cfg_coverage=False)
+        with patch("test.pylib.suite.ScyllaCluster") as mock_cluster:
+            append_env = await self._call_create_cluster(suite, mock_cluster)
+        assert append_env == {}
+
+    @pytest.mark.asyncio
+    async def test_cfg_coverage_absent_defaults_true(self, mock_options, tmp_path):
+        """When 'coverage' key is missing from YAML, defaults to True (coverage enabled)."""
         cfg = {}  # no 'coverage' key
         suite_dir = tmp_path / "cov2"
         suite_dir.mkdir(exist_ok=True)
         mock_options.coverage = True
         mock_options.coverage_modes = ["dev"]
         suite = _make_python_suite(str(suite_dir), cfg, mock_options, "dev")
-        assert suite.need_coverage() is True
+        suite.scylla_exe = "/usr/bin/scylla"
+        with patch("test.pylib.suite.ScyllaCluster") as mock_cluster:
+            append_env = await self._call_create_cluster(suite, mock_cluster)
+        assert "LLVM_PROFILE_FILE" in append_env
 
 
 

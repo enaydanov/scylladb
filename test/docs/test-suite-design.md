@@ -86,7 +86,7 @@ config.
 | `run_first` | `list[string]` | `[]` | `TestSuiteConfig` (runner.py) | Tests to prioritize (sorted to the front of the execution list). |
 | `no_parallel_cases` | `list[string]` | `[]` | `TestSuiteConfig` (runner.py) | Tests whose cases should not run in parallel. |
 | `flaky` | `list[string]` | `[]` | `TestSuiteConfig` (runner.py) | Tests that are known-flaky (retained in config for historical tracking). |
-| `coverage` | `bool` | `true` | `TestSuite.need_coverage()` | Whether to enable code coverage for this suite. |
+| `coverage` | `bool` | `true` | `TestSuite.create_cluster()` | Whether to enable code coverage for this suite. |
 | `cluster` | `mapping` | `{"initial_size": 1}` | `TestSuite.__init__` | Cluster configuration. Sub-key `initial_size` controls the number of nodes. |
 | `pool_size` | `int` | `2` | `TestSuite.__init__` | Number of clusters in the reuse pool. Overridden by env `CLUSTER_POOL_SIZE`. |
 | `extra_scylla_cmdline_options` | `list[string]` or `string` | `[]` | `TestSuite.create_cluster()` → `ScyllaCluster.add_server()` | Additional Scylla command-line flags. Merged with test-level and CLI-level options. |
@@ -133,18 +133,11 @@ Sets the following instance state:
 | `cfg` | The raw parsed YAML dict |
 | `options` | CLI options namespace |
 | `mode` | Build mode string |
-| `base_env` | Base environment dict. If coverage is needed, adds `LLVM_PROFILE_FILE`. |
 | `scylla_exe` | Path to the Scylla executable. Set externally by the `testpy_test` fixture from the `scylla_binary` fixture (not initialized in `__init__`). |
 
 Note: `clusters` is a `@cached_property` (see Section 4.4), not set in `__init__`.
 
-### 4.3 Concrete Methods
-
-**`need_coverage() -> bool`**: returns `True` if coverage is enabled in options,
-the current mode is in the coverage modes, and the suite config does not set
-`coverage: false`.
-
-### 4.4 Cluster Pool and Creation
+### 4.3 Cluster Pool and Creation
 
 **`clusters`** (`@cached_property` → `Pool`): lazily creates the cluster pool
 on first access. The **pool size** is resolved with the following priority:
@@ -159,16 +152,20 @@ The pool's recycle callback delegates to `ScyllaCluster.recycle()`, which:
 
 **`create_cluster(logger)`** (async method): the pool's build callback:
 
-1. Creates a `ScyllaCluster` with the suite's config (host registry, initial
-   cluster size, mode, command-line options, config options, environment).
+1. Computes the coverage environment: if `options.coverage` is true, the
+   current mode is in `options.coverage_modes`, and the suite config does not
+   set `coverage: false`, sets `LLVM_PROFILE_FILE` in `append_env` so that
+   instrumented binaries write coverage data to a per-suite profraw file.
+2. Creates a `ScyllaCluster` with the suite's config (host registry, initial
+   cluster size, mode, command-line options, config options, coverage env).
    Server creation logic (command-line merging, config assembly, `ScyllaServer`
    construction) lives in `ScyllaCluster.add_server()`.
-2. Registers `cluster.stop` as both a suite artifact and an exit artifact
+3. Registers `cluster.stop` as both a suite artifact and an exit artifact
    (via the module-level `artifacts` instance in `artifact_registry.py`).
-3. If `save_log_on_success` is false, also registers `cluster.uninstall` as a
+4. If `save_log_on_success` is false, also registers `cluster.uninstall` as a
    suite artifact.
-4. Calls `install_and_start()` on the cluster.
-5. If the cluster fails to start, cleans up (stop, close API, release IPs) and
+5. Calls `install_and_start()` on the cluster.
+6. If the cluster fails to start, cleans up (stop, close API, release IPs) and
    raises the start exception immediately, preventing the pool from returning a
    broken cluster.
 
