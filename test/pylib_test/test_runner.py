@@ -18,6 +18,8 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
+from pathlib import Path
+
 from test.pylib.runner import (
     TEST_SUITE,
     TestSuiteConfig,
@@ -29,6 +31,7 @@ from test.pylib.runner import (
     pytest_runtest_makereport,
     pytest_sessionfinish,
     pytest_sessionstart,
+    scylla_binary as scylla_binary_fixture,
     testpy_test_fixture_scope,
 )
 from test.pylib.suite import TestSuite
@@ -462,6 +465,76 @@ class TestRunIdOption:
 
 
 # ---------------------------------------------------------------------------
+# scylla_binary fixture — Scylla executable resolution
+# ---------------------------------------------------------------------------
+
+
+class TestScyllaBinary:
+    """Verify that scylla_binary resolves the Scylla executable path correctly.
+
+    Priority: --exe-path > --exe-url > path_to(build_mode, "scylla").
+    """
+
+    @patch("test.pylib.runner.path_to", return_value="/build/dev/scylla")
+    @pytest.mark.asyncio
+    async def test_default_uses_path_to(self, mock_path_to):
+        """Without --exe-path or --exe-url, resolves via path_to(build_mode, 'scylla')."""
+        request = MagicMock()
+        request.config.option = MagicMock(exe_path=False, exe_url=False)
+
+        result = await scylla_binary_fixture.__wrapped__(request, "dev")
+
+        assert result == Path("/build/dev/scylla")
+        mock_path_to.assert_called_once_with("dev", "scylla")
+
+    @pytest.mark.asyncio
+    async def test_exe_path_overrides_default(self):
+        """--exe-path takes priority over the default path_to resolution."""
+        request = MagicMock()
+        request.config.option = MagicMock(exe_path="/custom/scylla", exe_url=False)
+
+        result = await scylla_binary_fixture.__wrapped__(request, "dev")
+
+        assert result == Path("/custom/scylla")
+
+    @patch("test.pylib.runner.get_scylla_executable", return_value="/downloaded/scylla")
+    @pytest.mark.asyncio
+    async def test_exe_url_downloads_and_returns(self, mock_get_exe):
+        """--exe-url triggers download via get_scylla_executable and returns the result."""
+        request = MagicMock()
+        request.config.option = MagicMock(exe_path=False, exe_url="https://example.com/scylla.tar")
+
+        result = await scylla_binary_fixture.__wrapped__(request, "dev")
+
+        assert result == Path("/downloaded/scylla")
+        mock_get_exe.assert_called_once_with("https://example.com/scylla.tar")
+
+    @pytest.mark.asyncio
+    async def test_exe_path_takes_priority_over_exe_url(self):
+        """When both --exe-path and --exe-url are set, --exe-path wins."""
+        request = MagicMock()
+        request.config.option = MagicMock(
+            exe_path="/custom/scylla",
+            exe_url="https://example.com/scylla.tar",
+        )
+
+        result = await scylla_binary_fixture.__wrapped__(request, "dev")
+
+        assert result == Path("/custom/scylla")
+
+    @patch("test.pylib.runner.path_to", return_value="/build/debug/scylla")
+    @pytest.mark.asyncio
+    async def test_returns_path_type(self, _mock_path_to):
+        """The fixture always returns a pathlib.Path instance."""
+        request = MagicMock()
+        request.config.option = MagicMock(exe_path=False, exe_url=False)
+
+        result = await scylla_binary_fixture.__wrapped__(request, "debug")
+
+        assert isinstance(result, Path)
+
+
+# ---------------------------------------------------------------------------
 # testpy_test fixture — suite creation and caching (inlined from opt_create)
 # ---------------------------------------------------------------------------
 
@@ -474,8 +547,7 @@ class TestTestpyTestSuiteCaching:
     that the fixture uses (TestSuite.suites keyed by path/mode).
     """
 
-    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
-    def test_creates_suite_and_caches_it(self, _path_to, tmp_path):
+    def test_creates_suite_and_caches_it(self, tmp_path):
         """Creating a TestSuite stores it in TestSuite.suites under path/mode key."""
         suite_dir = tmp_path / "my_suite"
         suite_dir.mkdir()
@@ -499,8 +571,7 @@ class TestTestpyTestSuiteCaching:
         assert TestSuite.suites[suite_key] is suite
         TestSuite.suites.clear()
 
-    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
-    def test_second_lookup_returns_cached_instance(self, _path_to, tmp_path):
+    def test_second_lookup_returns_cached_instance(self, tmp_path):
         """Looking up the same path+mode key returns the cached instance, not a new one."""
         suite_dir = tmp_path / "cached_suite"
         suite_dir.mkdir()
@@ -526,8 +597,7 @@ class TestTestpyTestSuiteCaching:
         assert len(TestSuite.suites) == 1
         TestSuite.suites.clear()
 
-    @patch("test.pylib.suite.path_to", return_value="/dummy/scylla")
-    def test_different_modes_get_separate_suites(self, _path_to, tmp_path):
+    def test_different_modes_get_separate_suites(self, tmp_path):
         """The same path with different modes produces distinct cached suites."""
         suite_dir = tmp_path / "mode_suite"
         suite_dir.mkdir()

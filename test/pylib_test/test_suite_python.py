@@ -42,7 +42,6 @@ class TestPoolSize:
         if env_pool is not None:
             env["CLUSTER_POOL_SIZE"] = str(env_pool)
         with (
-            patch("test.pylib.suite.path_to", return_value="/dummy/scylla"),
             patch("test.pylib.suite.Pool") as MockPool,
             patch.dict(os.environ, env, clear=False),
         ):

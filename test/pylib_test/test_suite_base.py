@@ -256,11 +256,8 @@ class TestPrepareDir:
 
 def _make_python_suite(path: str, cfg: dict, options, mode: str):
     """Create a TestSuite without triggering heavy imports."""
-    from unittest.mock import patch as _patch
-    
     pathlib.Path(path).mkdir(parents=True, exist_ok=True)
-    with _patch("test.pylib.suite.path_to", return_value="/dummy/scylla"):
-        return TestSuite(path, cfg, options, mode)
+    return TestSuite(path, cfg, options, mode)
 
 
 def _make_python_test(shortname: str, suite, run_id: int = 1):

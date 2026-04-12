@@ -273,7 +273,7 @@ re-export was removed.
 | `print_scylla_log_filename` fixture | LEGACY-ONLY | ✅ REMOVED | Removed in Phase 4 |
 | `testpy_test_fixture_scope()` | SHARED | 🔄 REMAINING | Condition changed in Phase 2 from `--test-py-init` to `TEST_RUNNER`; function kept because runpy needs `"session"` scope |
 | `testpy_test` fixture | SHARED (simplifiable) | 🔄 REMAINING | Deferred to Phase 2 |
-| `scylla_binary` fixture | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |
+| `scylla_binary` fixture | SHARED | ✅ REFACTORED | Now resolves exe path directly (scope=dynamic, async); no longer depends on `testpy_test` |
 | `pytest_sessionstart` init block | SHARED | 🔄 REMAINING (simplified) | `TESTPY_PREPARED_ENVIRONMENT` guards removed; init is now unconditional |
 | `pytest_sessionfinish` cleanup | SHARED | 🔄 REMAINING (simplified) | `TESTPY_PREPARED_ENVIRONMENT` guards removed; cleanup is now unconditional for non-xdist workers |
 | `pytest_configure` logging | LEGACY-ONLY | 🔄 REMAINING | Deferred to Phase 2 |

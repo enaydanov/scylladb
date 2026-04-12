@@ -31,7 +31,7 @@ import yaml
 from _pytest.junitxml import xml_key
 
 
-from test import ALL_MODES, DEBUG_MODES, TEST_RUNNER, TOP_SRC_DIR, HOST_ID
+from test import ALL_MODES, DEBUG_MODES, TEST_RUNNER, TOP_SRC_DIR, HOST_ID, path_to
 from test.pylib.skip_reason_plugin import skip_marker
 from test.pylib.scylla_cluster import get_scylla_executable, merge_cmdline_options
 from test.pylib.suite import (
@@ -197,7 +197,7 @@ def scale_timeout(build_mode: str) -> Callable[[int | float], int | float]:
 
 
 @pytest.fixture(scope=testpy_test_fixture_scope)
-async def testpy_test(request: pytest.FixtureRequest, build_mode: str) -> Test | None:
+async def testpy_test(request: pytest.FixtureRequest, build_mode: str, scylla_binary: Path) -> Test | None:
     """Create an instance of Test class for the current test module."""
 
     if request.scope == "module":
@@ -209,17 +209,23 @@ async def testpy_test(request: pytest.FixtureRequest, build_mode: str) -> Test |
         if not suite:
             suite = TestSuite(path, suite_config.cfg, options, build_mode)
             TestSuite.suites[suite_key] = suite
-        if getattr(options, "exe_path", False):
-            suite.scylla_exe = options.exe_path
-        elif getattr(options, "exe_url", False):
-            suite.scylla_exe = await get_scylla_executable(options.exe_url)
+        suite.scylla_exe = scylla_binary
         shortname = str(request.path.relative_to(suite.suite_path).with_suffix(""))
         return Test(shortname, suite, run_id=request.node.stash[RUN_ID])
     return None
 
-@pytest.fixture(scope="function")
-def scylla_binary(testpy_test) -> Path:
-    return testpy_test.suite.scylla_exe
+@pytest.fixture(scope=testpy_test_fixture_scope)
+async def scylla_binary(request: pytest.FixtureRequest, build_mode: str) -> Path:
+    """Resolve the Scylla executable path.
+
+    Priority: --exe-path > --exe-url > path_to(build_mode, "scylla").
+    """
+    options = request.config.option
+    if getattr(options, "exe_path", False):
+        return Path(options.exe_path)
+    if getattr(options, "exe_url", False):
+        return Path(await get_scylla_executable(options.exe_url))
+    return Path(path_to(build_mode, "scylla"))
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

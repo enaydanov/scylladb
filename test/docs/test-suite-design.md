@@ -134,7 +134,7 @@ Sets the following instance state:
 | `options` | CLI options namespace |
 | `mode` | Build mode string |
 | `base_env` | Base environment dict. If coverage is needed, adds `LLVM_PROFILE_FILE`. |
-| `scylla_exe` | Path to the Scylla executable for the current mode, resolved via `path_to(mode, "scylla")`. |
+| `scylla_exe` | Path to the Scylla executable. Set externally by the `testpy_test` fixture from the `scylla_binary` fixture (not initialized in `__init__`). |
 
 Note: `clusters` is a `@cached_property` (see Section 4.4), not set in `__init__`.
 
@@ -230,7 +230,7 @@ Test creation logic lives directly in the `testpy_test` fixture in `runner.py`:
 1. Reads the `TestSuiteConfig` from the pytest stash (`TEST_SUITE` key).
 2. Looks up `TestSuite.suites` by `path/mode` key; creates and caches a new
    `TestSuite` if none exists.
-3. If `options.exe_path` or `options.exe_url` is set, overrides `suite.scylla_exe`.
+3. Sets `suite.scylla_exe` from the `scylla_binary` fixture (which resolves `--exe-path`, `--exe-url`, or `path_to()`).
 4. Creates a `Test` instance, passing the `run_id` from
    `request.node.stash[RUN_ID]` (set by `pytest_collect_file()`).
 5. Returns the new `Test` instance.

@@ -14,7 +14,6 @@ from contextlib import asynccontextmanager
 from functools import cached_property
 from typing import TYPE_CHECKING
 
-from test import path_to
 from test.pylib.artifact_registry import artifacts
 from test.pylib.host_registry import HostRegistry
 from test.pylib.pool import Pool
@@ -52,7 +51,6 @@ class TestSuite:
             # ref: https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program
             self.base_env["LLVM_PROFILE_FILE"] = str(self.log_dir / "coverage" / self.name / "%m.profraw")
 
-        self.scylla_exe = path_to(self.mode, "scylla")
 
 
 

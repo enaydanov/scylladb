@@ -354,7 +354,7 @@ The primary bridge fixture between pytest and the suite framework.
 
 ```python
 @pytest.fixture(scope=testpy_test_fixture_scope)
-async def testpy_test(request, build_mode) -> Test | None
+async def testpy_test(request, build_mode, scylla_binary) -> Test | None
 ```
 
 - If scope is `"module"` (test.py and bare pytest): reads the `TestSuiteConfig`
@@ -390,14 +390,21 @@ def scale_timeout(build_mode) -> Callable[[int | float], int | float]
 Returns a closure that scales a timeout value based on the current build mode
 via `scale_timeout_by_mode()`. Debug modes get longer timeouts.
 
-### 9.5 `scylla_binary` (scope=function)
+### 9.5 `scylla_binary` (async, scope=dynamic)
 
 ```python
-@pytest.fixture(scope="function")
-def scylla_binary(testpy_test) -> Path
+@pytest.fixture(scope=testpy_test_fixture_scope)
+async def scylla_binary(request, build_mode) -> Path
 ```
 
-Returns `testpy_test.suite.scylla_exe`.
+Resolves the Scylla executable path with the following priority:
+1. `--exe-path` CLI option (if set)
+2. `--exe-url` CLI option (downloads via `get_scylla_executable()`)
+3. `path_to(build_mode, "scylla")` (default)
+
+The `testpy_test` fixture depends on `scylla_binary` and stores the resolved
+path on `suite.scylla_exe` so that `create_cluster()` can pass it to
+`ScyllaCluster`.
 
 ---
 

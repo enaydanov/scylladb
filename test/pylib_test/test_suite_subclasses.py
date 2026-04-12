@@ -32,8 +32,7 @@ class TestRunCtx:
         suite_dir.mkdir(exist_ok=True)
         if cfg is None:
             cfg = {}
-        with patch("test.pylib.suite.path_to", return_value="/dummy/scylla"):
-            return TestSuite(str(suite_dir), cfg, mock_options, mode)
+        return TestSuite(str(suite_dir), cfg, mock_options, mode)
 
     def _make_test(self, tmp_path, mock_options, cfg=None, shortname="test_foo", mode="dev"):
         from test.pylib.suite import Test
