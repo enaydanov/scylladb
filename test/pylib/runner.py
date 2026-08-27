@@ -18,6 +18,7 @@ import time
 import urllib.parse
 from argparse import BooleanOptionalAction
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from itertools import chain, count
 from functools import cache, cached_property
 from random import randint
@@ -125,9 +126,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 # outcome of each phase (setup / call / teardown) independently.
 PHASE_REPORT_KEY = pytest.StashKey[dict[str, pytest.CollectReport]]()
 
-# Set by the `manager` fixture so the log collector in pytest_runtest_makereport
-# can gather manager-owned logs: {"manager": ScyllaClusterManager, "logs": {name: path}}.
-MANAGER_LOGS_KEY = pytest.StashKey[dict[str, object]]()
+# The cluster a fixture created, stashed on the fixture's node: the test item
+# for `manager`, the module for `scylla_cluster`.  pytest_runtest_makereport
+# marks it for preservation when the test fails.
+CLUSTER_KEY = pytest.StashKey[ScyllaCluster | None]()
 
 FAILED_TEST_DIR = "failed_test"
 
@@ -298,6 +300,12 @@ def testpy_uname(request: pytest.FixtureRequest, testpy_shortname: str) -> str:
 
 
 @pytest.fixture(scope="module")
+def testpy_logger(testpy_uname: str) -> logging.Logger:
+    """Logger for the module's cluster activity, named by the module's unique name."""
+    return logging.getLogger(testpy_uname)
+
+
+@pytest.fixture(scope="module")
 def scale_timeout(build_mode: str) -> Callable[[int | float], int | float]:
     def scale_timeout_inner(timeout: int | float) -> int | float:
         return scale_timeout_by_mode(build_mode, timeout)
@@ -309,7 +317,8 @@ def scale_timeout(build_mode: str) -> Callable[[int | float], int | float]:
 def testpy_cluster_factory(request: pytest.FixtureRequest,
                            build_mode: str,
                            suite_log_dir: pathlib.Path,
-                           scylla_binary: str) -> ClusterFactory:
+                           scylla_binary: str,
+                           testpy_logger: logging.Logger) -> ClusterFactory:
     """A factory of Scylla clusters configured for the current suite and build mode."""
     suite_config = get_params_stash(node=request.node)[TEST_SUITE]
     options = request.config.option
@@ -325,13 +334,11 @@ def testpy_cluster_factory(request: pytest.FixtureRequest,
         # ref: https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program
         base_env["LLVM_PROFILE_FILE"] = str(suite_log_dir / "coverage" / suite_config.name / "%m.profraw")
 
-    cluster_size = suite_config.cfg.get("cluster", {}).get("initial_size", 1)
-
-    async def create_cluster(logger: logging.Logger | logging.LoggerAdapter) -> ScyllaCluster:
-        cluster = ScyllaCluster(
-            logger=logger,
+    @asynccontextmanager
+    async def cluster_for_test(node: _pytest.nodes.Node, test_name: str) -> AsyncGenerator[ScyllaCluster]:
+        node.stash[CLUSTER_KEY] = cluster = ScyllaCluster(
+            logger=testpy_logger,
             vardir=suite_log_dir,
-            replicas=cluster_size,
             mode=build_mode,
             cmdline_options=suite_config.cfg.get("extra_scylla_cmdline_options", []),
             cmdline_options_override=options.extra_scylla_cmdline_options.split(),
@@ -339,34 +346,22 @@ def testpy_cluster_factory(request: pytest.FixtureRequest,
             append_env=base_env,
             scylla_exe=scylla_binary,
         )
-
-        async def stop() -> None:
-            await cluster.stop()
-
-        artifacts.add_exit_artifact(stop)
-
-        if not options.save_log_on_success:
-            # If a test fails, we might want to keep the data dirs.
-            async def uninstall() -> None:
+        cluster.preserve_for_debugging = options.save_log_on_success
+        testpy_logger.info("Created Scylla cluster %s for test %s", cluster, test_name)
+        try:
+            yield cluster
+        except Exception as exc:
+            testpy_logger.info("Test %s failed: %s", test_name, exc)
+            cluster.preserve_for_debugging = True
+            raise
+        finally:
+            testpy_logger.info("Test %s finished", test_name)
+            await cluster.recycle()
+            if not cluster.preserve_for_debugging:
                 await cluster.uninstall()
+            node.stash[CLUSTER_KEY] = None
 
-            artifacts.add_exit_artifact(uninstall)
-
-        await cluster.install_and_start()
-        # If cluster failed to start, raise the exception immediately
-        # so a broken cluster is never handed out to tests
-        if cluster.start_exception is not None:
-            # Clean up the broken cluster before raising
-            try:
-                await cluster.recycle()
-            except Exception:
-                # Report it and raise the start failure, which is the more
-                # useful of the two.
-                logger.warning("Failed to recycle the cluster that failed to start", exc_info=True)
-            raise cluster.start_exception
-        return cluster
-
-    return create_cluster
+    return cluster_for_test
 
 
 @pytest.fixture(scope="module")
@@ -382,46 +377,13 @@ def scylla_binary(request: pytest.FixtureRequest, build_mode: str) -> str:
 @pytest.fixture(scope="module")
 async def scylla_cluster(request: pytest.FixtureRequest,
                          testpy_cluster_factory: ClusterFactory,
-                         build_mode: str,
-                         testpy_shortname: str,
                          testpy_uname: str) -> AsyncGenerator[ScyllaCluster]:
-    """Create a ScyllaCluster for the tests in a module.
+    """A ScyllaCluster with one server, shared by the tests in a module."""
 
-    Builds a cluster with the suite's factory, runs the before-test hook and
-    yields it to the module's tests. Once the module is done the cluster is
-    recycled, so a later module always starts from a fresh one.
-    """
-    logger_prefix = f"{build_mode}/"
-    cluster_logger = LogPrefixAdapter(logging.getLogger(logger_prefix), {"prefix": logger_prefix})
-    cluster: ScyllaCluster | None = None
-    server_log_filename: pathlib.Path | None = None
-    testpy_name = os.path.join(get_params_stash(node=request.node)[TEST_SUITE].name, testpy_shortname.split('.')[0])
-    is_before_test_ok = False
-    is_after_test_ok = False
-    try:
-        cluster = await testpy_cluster_factory(cluster_logger)
-        cluster.before_test(testpy_uname)
-        cluster_logger.info("Leasing Scylla cluster %s for test %s", cluster, testpy_uname)
-        server_log_filename = cluster.server_log_filename()
-        is_before_test_ok = True
+    async with testpy_cluster_factory(request.node, testpy_uname) as cluster:
+        await cluster.add_server()
         cluster.take_log_savepoint()
-
         yield cluster
-
-        cluster.after_test(testpy_uname)
-        is_after_test_ok = True
-    except Exception as exc:
-        if not is_before_test_ok:
-            logger.info("Test %s pre-check failed: %s\ncheck server logs: %s", testpy_name, exc, server_log_filename)
-            cluster_logger.info("Discarding cluster after failed start for test %s...", testpy_name)
-        elif not is_after_test_ok:
-            logger.info("Test %s post-check failed: %s\ncheck server logs: %s", testpy_name, exc, server_log_filename)
-            cluster_logger.info("Discarding cluster after failed test %s...", testpy_name)
-        raise
-    finally:
-        if cluster is not None:
-            cluster_logger.info("Test %s finished", testpy_uname)
-            await cluster.recycle()
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item], config: pytest.Config) -> None:
@@ -528,7 +490,7 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     if session.testsfailed == 0 and not session.config.getoption("--save-log-on-success"):
         # Use missing_ok=True because the log file is only created on first write,
         # so it may never have been written if nothing was logged.
-        pathlib.Path(_pytest_config.stash[PYTEST_LOG_FILE]).unlink(missing_ok=True)
+        pathlib.Path(session.config.stash[PYTEST_LOG_FILE]).unlink(missing_ok=True)
 
     asyncio.run(artifacts.cleanup_before_exit())
 
@@ -646,6 +608,12 @@ def pytest_collect_file(file_path: pathlib.Path,
     return collectors
 
 
+def get_cluster_from_pytest_node(node: _pytest.nodes.Node) -> ScyllaCluster | None:
+    if CLUSTER_KEY in node.stash:
+        return node.stash[CLUSTER_KEY]
+    return None if node.parent is None else get_cluster_from_pytest_node(node.parent)
+
+
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     """Post-test hook to store test result in stash and optionally save logs.
@@ -653,8 +621,6 @@ def pytest_runtest_makereport(item, call):
     Stores each phase's report in item.stash[PHASE_REPORT_KEY][phase] so
     fixtures and hooks can access the test outcome per phase.  `item.stash`
     is the same stash as `request.node.stash` in pytest fixtures.
-
-    When --test-py-init is set, also saves failed test details to log files.
     """
     outcome = yield
     report = outcome.get_result()
@@ -663,49 +629,36 @@ def pytest_runtest_makereport(item, call):
     item.stash.setdefault(PHASE_REPORT_KEY, {})[report.when] = report
 
     # Optionally save test failure logs to files
-    if _pytest_config:
-        pytest_tests_logs = pathlib.Path(_pytest_config.getoption("--tmpdir")).absolute() / PYTEST_TESTS_LOGS_FOLDER
-        if report.failed or _pytest_config.getoption("--save-log-on-success"):
-            with open(pytest_tests_logs / f"{item._nodeid.replace('::', '-').replace('/', '-')}-{report.when}-{HOST_ID}.log", 'a') as f:
-                f.write(report.longreprtext + "\n")
-                for section in report.sections:
-                    f.write(section[0] + "\n")
-                    f.write(section[1] + "\n")
+    if report.failed or item.config.getoption("--save-log-on-success"):
+        log_file = (
+            pathlib.Path(item.config.getoption("--tmpdir")).absolute() /
+            PYTEST_TESTS_LOGS_FOLDER /
+            f"{item._nodeid.replace('::', '-').replace('/', '-')}-{report.when}-{HOST_ID}.log"
+        )
+        with log_file.open("a", encoding="utf-8") as f:
+            f.write(report.longreprtext + "\n")
+            for section in report.sections:
+                f.write(section[0] + "\n")
+                f.write(section[1] + "\n")
 
-        # Single source of truth for attaching failed-test logs. cqlpy/alternator
-        # expose a `scylla_cluster`; topology suites publish MANAGER_LOGS_KEY.
-        if report.failed:
-            # C++ items (and early setup failures) lack `funcargs`; nothing to collect.
-            funcargs = getattr(item, "funcargs", {})
-            build_mode = funcargs.get("build_mode")
-            cluster = funcargs.get("scylla_cluster")
-            # Published by the manager fixture (even when pulled in indirectly),
-            # so we don't re-derive its log paths or re-resolve the fixture here.
-            manager_logs = item.stash.get(MANAGER_LOGS_KEY, None)
-            if build_mode is not None and (cluster is not None or manager_logs is not None):
-                try:
-                    failed_test_dir_path = make_failed_test_dir(item.config, build_mode, item.name)
-
-                    if cluster is not None:
-                        # Copy the server log before the cluster teardown closes it.
-                        server_log = cluster.server_log_filename()
-                        if server_log is not None and pathlib.Path(server_log).is_file():
-                            shutil.copyfile(server_log, failed_test_dir_path / pathlib.Path(server_log).name)
-
-                    if manager_logs is not None:
-                        # Manager owns the servers; gather via ScyllaClusterManager (sync-callable
-                        # since ScyllaClusterManager is universalasync-wrapped).
-                        manager_logs["manager"].gather_related_logs(failed_test_dir_path, manager_logs["logs"])
-
-                    record_failed_test_artifacts(
-                        config=item.config,
-                        properties=item.user_properties,
-                        failed_test_dir_path=failed_test_dir_path,
-                        longreprtext=report.longreprtext,
-                        when=report.when,
-                    )
-                except Exception:
-                    logger.warning("Failed to collect logs for failed test %s", item.name, exc_info=True)
+    if report.failed:
+        if cluster := get_cluster_from_pytest_node(item):
+            # Keep the failed test's cluster data and logs for debugging.
+            cluster.preserve_for_debugging = True
+            try:
+                failed_test_dir_path = make_failed_test_dir(item.config, item.stash[BUILD_MODE], item.name)
+                for server in cluster.servers.values():
+                    if server.log_filename.is_file():
+                        shutil.copyfile(server.log_filename, failed_test_dir_path / server.log_filename.name)
+                record_failed_test_artifacts(
+                    config=item.config,
+                    properties=item.user_properties,
+                    failed_test_dir_path=failed_test_dir_path,
+                    longreprtext=report.longreprtext,
+                    when=report.when,
+                )
+            except Exception:
+                logger.warning("Failed to collect logs for failed test %s", item.name, exc_info=True)
 
 
 class TestSuiteConfig:
@@ -911,5 +864,3 @@ def prepare_environment(tempdir_base: pathlib.Path,
                         toxiproxy_byte_limit: int) -> None:
     prepare_dirs(tempdir_base, modes, gather_metrics, save_log_on_success=save_log_on_success)
     start_3rd_party_services(tempdir_base=tempdir_base, toxiproxy_byte_limit=toxiproxy_byte_limit)
-
-

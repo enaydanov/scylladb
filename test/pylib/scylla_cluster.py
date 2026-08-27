@@ -9,13 +9,12 @@
 import asyncio
 import copy
 import importlib
-import itertools
 import logging
 import pathlib
 import uuid
 from collections import ChainMap
 from functools import reduce
-from typing import Any, Awaitable, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 import psutil
 
@@ -33,7 +32,16 @@ from test.pylib.scylla_server import (
 from test.pylib.util import gather_safely
 
 
-type ClusterFactory = Callable[[logging.Logger | logging.LoggerAdapter], Awaitable[ScyllaCluster]]
+if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+
+    import _pytest.nodes
+
+
+# Returns a context manager leasing a cluster to one test: entering it creates
+# the cluster and stashes it on the given node, exiting recycles it and, unless
+# it is preserved for debugging, uninstalls it.
+type ClusterFactory = Callable[[_pytest.nodes.Node, str], AbstractAsyncContextManager[ScyllaCluster]]
 
 
 def bind_to_current_loop(callback: Callable[[], Any]) -> Callable[[], Awaitable[None]]:
@@ -73,7 +81,6 @@ class ScyllaCluster:
     def __init__(self,
                  logger: Union[logging.Logger, logging.LoggerAdapter],
                  vardir: pathlib.Path,
-                 replicas: int,
                  mode: str,
                  cmdline_options: str | list[str],
                  cmdline_options_override: list[str],
@@ -91,7 +98,6 @@ class ScyllaCluster:
         self.host_registry = HostRegistry()
         self.leased_ips = set[IPAddress]()
         self.name = str(uuid.uuid1())
-        self.replicas = replicas
         # Every ScyllaServer is in one of self.running, self.stopped.
         # These dicts are disjoint.
         # A server ID present in self.removed may be either in self.running or in self.stopped.
@@ -102,38 +108,22 @@ class ScyllaCluster:
         self.starting: Dict[ServerNum, ScyllaServer] = {}       # servers starting right now, not yet running (and not included in "servers").
         # The first IP assigned to a server added to the cluster.
         self.initial_seed: Optional[IPAddress] = None
-        # cluster is started (but it might not have running servers)
-        self.is_running: bool = False
-        # cluster was modified in a way it should not be used in subsequent tests
-        self.is_dirty: bool = False
-        self.start_exception: Optional[Exception] = None
-        self.keyspace_count = 0
+        # cluster is started (but it might not have running servers);
+        # cleared by stop(), which is a no-op when it is False
+        self.is_running: bool = True
+        # a test failed on this cluster, or it failed to start: keep its data
+        # and logs for debugging instead of uninstalling them.  Set by
+        # pytest_runtest_makereport and by the fixtures' failure paths.
+        self.preserve_for_debugging: bool = False
         self.api = ScyllaRESTAPIClient()
-        self.stop_lock = asyncio.Lock()
         # Cleanups a test registered through ScyllaClusterManager.add_teardown_callback(),
         # as (callback, name) pairs.  They are fired by run_teardown_callbacks()
         # when this cluster is recycled.
         self.teardown_callbacks: List[Tuple[Callable[[], Awaitable[None]], str]] = []
         self.logger.info("Created new cluster %s", self.name)
 
-    async def install_and_start(self) -> None:
-        """Setup initial servers and start them.
-           Catch and save any startup exception"""
-        try:
-            if self.replicas > 0:
-                await self.add_servers(self.replicas)
-                self.keyspace_count = self._get_keyspace_count()
-        except Exception as exc:
-            # If start fails, swallow the error to throw later,
-            # at test time.
-            self.start_exception = exc
-        self.is_running = True
-        self.logger.info("Created cluster %s", self)
-        self.is_dirty = False
-
     async def uninstall(self) -> None:
         """Stop running servers and uninstall all servers"""
-        self.is_dirty = True
         self.logger.info("Uninstalling cluster %s", self)
         await self.stop()
         await gather_safely(*(srv.uninstall() for srv in self.stopped.values()))
@@ -209,25 +199,19 @@ class ScyllaCluster:
 
     async def stop(self) -> None:
         """Stop all running servers ASAP"""
-        # FIXME: the lock is necessary because test.py calls `stop()` and `uninstall()` concurrently
-        # (from exit artifacts), which leads to issues (#15755). A more elegant solution would be
-        # to prevent that instead of using a lock here.
-        async with self.stop_lock:
-            if self.is_running:
-                self.is_running = False
-                self.logger.info("Cluster %s stopping", self)
-                self.is_dirty = True
-                # If self.running is empty, no-op
-                await gather_safely(*(server.stop() for server in self.running.values()))
-                self.stopped.update(self.running)
-                self.running.clear()
+        if self.is_running:
+            self.is_running = False
+            self.logger.info("Cluster %s stopping", self)
+            # If self.running is empty, no-op
+            await gather_safely(*(server.stop() for server in self.running.values()))
+            self.stopped.update(self.running)
+            self.running.clear()
 
     async def stop_gracefully(self) -> None:
         """Stop all running servers in a clean way"""
         if self.is_running:
             self.is_running = False
             self.logger.info("Cluster %s stopping gracefully", self)
-            self.is_dirty = True
             # If self.running is empty, no-op
             await gather_safely(*(server.stop_gracefully() for server in self.running.values()))
             self.stopped.update(self.running)
@@ -250,7 +234,6 @@ class ScyllaCluster:
                          expected_error: Optional[str] = None,
                          expected_server_up_state: ServerUpState = ServerUpState.SERVING) -> ServerInfo:
         """Add a new server to the cluster"""
-        self.is_dirty = True
 
         assert start or not expected_error, \
             f"add_server: cannot add a stopped server and expect an error"
@@ -444,63 +427,12 @@ class ScyllaCluster:
         """Get a list of tuples of server ids and IP address of servers which are currently starting (not yet running)"""
         return [server.server_info() for server in self.starting.values()]
 
-    def _get_keyspace_count(self) -> int:
-        """Get the current keyspace count"""
-        assert self.start_exception is None
-        assert self.running, "No active nodes left"
-        server = next(iter(self.running.values()))
-        self.logger.debug("_get_keyspace_count() using server %s", server)
-        assert server.control_connection is not None
-        rows = server.control_connection.execute(
-               "select count(*) as c from system_schema.keyspaces")
-        keyspace_count = int(rows.one()[0])
-        return keyspace_count
-
-    def before_test(self, name) -> None:
-        """Check that  the cluster is ready for a test. If
-        there was a start error, throw it here - the cluster is started
-        outside of any specific test, so throwing it at start time
-        wouldn't be attributed to a test."""
-        if self.start_exception:
-            # Mark as dirty so further test cases don't try to reuse this cluster.
-            self.is_dirty = True
-            raise Exception(f'Exception when starting cluster {self}:\n{self.start_exception}')
-
-        for server in self.running.values():
-            server.write_log_marker(f"------ Starting test {name} ------\n")
-
-    def after_test(self, name: str, success: bool | None = None) -> None:
-        """Mark the cluster as dirty after a failed test.
-        If the cluster is not dirty, check that it's still alive and the test
-        hasn't left any garbage."""
-        assert self.start_exception is None
-        if not success:
-            if success is not None:
-                self.logger.debug(f"Test failed using cluster {self.name}, marking the cluster as dirty")
-            self.is_dirty = True
-        if self.is_dirty:
-            self.logger.info(f"The cluster {self.name} is dirty, not checking"
-                             f" keyspace count post-condition")
-        else:
-            if self.running and self._get_keyspace_count() != self.keyspace_count:
-                raise RuntimeError(f"Test post-condition on cluster {self.name} failed, "
-                                   f"the test must drop all keyspaces it creates.")
-        for server in itertools.chain(self.running.values(), self.stopped.values()):
-            server.write_log_marker(f"------ Ending test {name} ------\n")
-            # Only close log files when the cluster is dirty (will be destroyed).
-            # If the cluster is clean and will be reused, keep the log file open
-            # so that write_log_marker() and take_log_savepoint() work in the
-            # next test's before_test().
-            if self.is_dirty and not server.log_file.closed:
-                server.log_file.close()
-
     async def server_stop(self, server_id: ServerNum, gracefully: bool) -> None:
         """Stop a server. No-op if already stopped."""
         self.logger.info("Cluster %s stopping server %s", self, server_id)
         if server_id in self.stopped:
             return
         assert server_id in self.running or server_id in self.starting, f"Server {server_id} unknown"
-        self.is_dirty = True
         if server_id in self.running:
             server = self.running[server_id]
         else:
@@ -542,7 +474,6 @@ class ScyllaCluster:
         if server_id in self.running:
             return
         assert server_id in self.stopped, f"Server {server_id} unknown"
-        self.is_dirty = True
         server = self.stopped.pop(server_id)
         self.logger.info("Cluster %s starting server %s ip %s", self,
                          server_id, server.ip_addr)
@@ -578,7 +509,6 @@ class ScyllaCluster:
         """Pause a running server process."""
         self.logger.info("Cluster %s pausing server %s", self.name, server_id)
         assert server_id in self.running
-        self.is_dirty = True
         server = self.running[server_id]
         server.pause()
 
@@ -594,7 +524,6 @@ class ScyllaCluster:
         self.logger.info("Cluster %s upgrading server %s to executable %s", self.name, server_id, path)
         server = self.servers[server_id]
         assert not server.is_running, f"Server {server_id} is running: stop it first and then change its executable"
-        self.is_dirty = True
         server.exe = pathlib.Path(path).resolve()
         server.check_scylla_executable()
 
@@ -628,41 +557,26 @@ class ScyllaCluster:
         """Update conf/scylla.yaml of the given server with `config_options` dict.
 
         If the server is running, reload the config with a SIGHUP.
-        Mark the cluster as dirty.
         Fail if the server cannot be found.
         """
         assert server_id in self.servers, f"Server {server_id} unknown"
-        self.is_dirty = True
         self.servers[server_id].update_config(config_options=config_options)
 
     def remove_config_option(self, server_id: ServerNum, key: str) -> None:
         """Remove an option from conf/scylla.yaml of the given server.
 
         If the server is running, reload the config with a SIGHUP.
-        Mark the cluster as dirty.
         Fail if the server cannot be found.
         """
         assert server_id in self.servers, f"Server {server_id} unknown"
-        self.is_dirty = True
         self.servers[server_id].remove_config_option(key=key)
 
     def update_cmdline(self, server_id: ServerNum, cmdline_options: List[str]) -> None:
         """Update the command-line options of the given server by merging the new options into the existing ones.
            The update only takes effect after restart.
-           Marks the cluster as dirty.
            Fails if the server cannot be found."""
         assert server_id in self.servers, f"Server {server_id} unknown"
-        self.is_dirty = True
         self.servers[server_id].update_cmdline(cmdline_options)
-
-    def setLogger(self, logger: logging.LoggerAdapter):
-        """Change the logger used by the cluster.
-           Called when a cluster is reused between tests so that logs during the new test
-           are prefixed appropriately with the corresponding test's name.
-        """
-        self.logger = logger
-        for srv in self.servers.values():
-            srv.setLogger(self.logger)
 
     async def change_ip(self, server_id: ServerNum) -> IPAddress:
         """Lease a new IP address and update conf/scylla.yaml with it. The
@@ -672,7 +586,6 @@ class ScyllaCluster:
         assert server_id in self.servers, f"Server {server_id} unknown"
         server = self.servers[server_id]
         assert not server.is_running, f"Server {server_id} is running: stop it first and then change its ip"
-        self.is_dirty = True
         ip_addr = IPAddress(await self.host_registry.lease_host())
         self.leased_ips.add(ip_addr)
         logging.info("Cluster %s changed server %s IP from %s to %s", self.name,
@@ -688,7 +601,6 @@ class ScyllaCluster:
         assert server_id in self.servers, f"Server {server_id} unknown"
         server = self.servers[server_id]
         assert not server.is_running, f"Server {server_id} is running: stop it first and then change its ip"
-        self.is_dirty = True
         rpc_address = IPAddress(await self.host_registry.lease_host())
         self.leased_ips.add(rpc_address)
         logging.info("Cluster %s changed server %s RPC IP from %s to %s", self.name,
@@ -701,7 +613,6 @@ class ScyllaCluster:
         assert server_id in self.servers, f"Server {server_id} unknown"
         server = self.servers[server_id]
         assert not server.is_running, f"Server {server_id} is running: stop it first and then delete its files"
-        self.is_dirty = True
         server.wipe_sstables(keyspace, table)
 
     def get_sstables_disk_usage(self, server_id: ServerNum, keyspace: str, table: str) -> int:

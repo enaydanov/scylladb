@@ -63,7 +63,7 @@ async def make_object_storage(kind, pytestconfig, tmpdir, log_dir, test_name, ma
         await manager.add_teardown_callback(server.destroy_test_bucket, 'destroy test bucket')
     except BaseException:
         # A failed registration does not say whether the manager got as far as
-        # recording the callback -- _call() shields the operation, so a
+        # recording the callback -- manager_op shields the operation, so a
         # timed-out or cancelled caller leaves it running.  Destroy the bucket
         # here regardless: no node has been told about it yet, so this races
         # with nothing, and destroy_test_bucket() is a no-op the second time if
