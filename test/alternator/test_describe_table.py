@@ -15,6 +15,8 @@
 #     will be together with tests devoted to the backup/restore feature.
 
 import pytest
+
+pytestmark = pytest.mark.lifecycle_check
 from botocore.exceptions import ClientError
 import re
 import time

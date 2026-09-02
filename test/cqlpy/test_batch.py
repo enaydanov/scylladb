@@ -13,6 +13,8 @@ from .rest_api import scylla_inject_error
 
 import pytest
 
+pytestmark = pytest.mark.lifecycle_check
+
 
 @pytest.fixture(scope="module")
 def table1(cql, test_keyspace):

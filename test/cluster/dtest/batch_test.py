@@ -18,6 +18,8 @@ from tools.cluster_topology import generate_cluster_topology
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.lifecycle_check
+
 
 class BatchTester:
     """Helper class that contains batch test logic, allowing cluster reuse across tests."""

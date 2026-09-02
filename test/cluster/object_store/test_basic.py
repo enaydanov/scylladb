@@ -164,6 +164,7 @@ async def test_basic(manager: ScyllaClusterManager, object_storage, tmp_path, mo
         have_res = {x.name: x.value for x in res}
         assert have_res == rows, f'Unexpected table content: {have_res}'
 
+@pytest.mark.lifecycle_check
 async def test_garbage_collect(manager: ScyllaClusterManager, object_storage):
     '''verify ownership table is garbage-collected on boot'''
 
