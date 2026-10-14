@@ -39,7 +39,7 @@ import time
 from typing import Optional, Type, List, Set, Union, TYPE_CHECKING
 if TYPE_CHECKING:
     from cassandra.cluster import Session as CassandraSession            # type: ignore
-    from test.pylib.scylla_cluster_manager import ScyllaClusterManager
+    from test.pylib.scylla_cluster import ScyllaCluster
 from test.pylib.rest_client import get_host_api_address, read_barrier
 from test.pylib.util import get_available_host
 
@@ -127,7 +127,7 @@ class RandomTable():
     # Sequential unique id
     newid = itertools.count(start=1).__next__
 
-    def __init__(self, manager: ScyllaClusterManager, keyspace: str, ncolumns: Optional[int]=None,
+    def __init__(self, manager: ScyllaCluster, keyspace: str, ncolumns: Optional[int]=None,
                  columns: Optional[List[Column]]=None, pks: int=2, name: str=None):
         """Set up a new table definition from column definitions.
            If column definitions not specified pick a random number of columns with random types.
@@ -265,7 +265,7 @@ class RandomTable():
 class RandomTables():
     """A list of managed random tables"""
 
-    def __init__(self, test_name: str, manager: ScyllaClusterManager, keyspace: str,
+    def __init__(self, test_name: str, manager: ScyllaCluster, keyspace: str,
                  replication_factor: int,
                  dc_replication_factor: dict[str, int] = None,
                  enable_tablets: None | bool = None):

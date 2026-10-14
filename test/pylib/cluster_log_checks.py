@@ -18,13 +18,13 @@ from test.pylib.internal_types import ServerInfo, ServerNum
 from test.pylib.log_browsing import ScyllaLogFile
 
 if TYPE_CHECKING:
-    from test.pylib.scylla_cluster_manager import ScyllaClusterManager
+    from test.pylib.scylla_cluster import ScyllaCluster
 
 
 class ClusterLogChecksMixin:
     """Reading and checking the server logs of the cluster."""
 
-    async def check_all_errors(self: ScyllaClusterManager,
+    async def check_all_errors(self: ScyllaCluster,
                                all_errors: bool = False) -> dict[ServerInfo, dict[str, list[str] | str]]:
         errors = defaultdict(dict)
         # find errors in logs
@@ -59,7 +59,7 @@ class ClusterLogChecksMixin:
 
         return errors
 
-    async def filter_errors(self: ScyllaClusterManager,
+    async def filter_errors(self: ScyllaCluster,
                             errors: list[str] | list[list[str]]) -> list[str] | list[list[str]]:
         exclude_errors_pattern = re.compile("|".join(f"{p}" for p in {
             *self.ignore_log_patterns,
@@ -96,7 +96,7 @@ class ClusterLogChecksMixin:
             return not exclude_errors_pattern.search(line)
         return [e for e in errors if match_line(e)]
 
-    async def find_cores(self: ScyllaClusterManager) -> dict[ServerInfo, list[str]]:
+    async def find_cores(self: ScyllaCluster) -> dict[ServerInfo, list[str]]:
         """Find core files on all servers."""
 
         # find *.core files in current dir
@@ -108,12 +108,12 @@ class ClusterLogChecksMixin:
                 server_cores[server] = found_cores
         return server_cores
 
-    async def gather_related_logs(self: ScyllaClusterManager, failed_test_path_dir: Path) -> None:
+    async def gather_related_logs(self: ScyllaCluster, failed_test_path_dir: Path) -> None:
         for server in await self.all_servers():
             log_file = await self.server_open_log(server_id=server.server_id)
             shutil.copyfile(log_file.file, failed_test_path_dir / f"{pathlib.Path(log_file.file).name}")
             allure.attach(log_file.file.read_bytes(), name=log_file.file.name, attachment_type=allure.attachment_type.TEXT)
 
-    async def server_open_log(self: ScyllaClusterManager, server_id: ServerNum) -> ScyllaLogFile:
+    async def server_open_log(self: ScyllaCluster, server_id: ServerNum) -> ScyllaLogFile:
         log_filename = await self.server_get_log_filename(server_id)
         return ScyllaLogFile(self.thread_pool, log_filename)

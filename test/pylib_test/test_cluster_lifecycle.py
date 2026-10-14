@@ -38,8 +38,9 @@ def test_cluster_teardowns_run_after_the_cluster_is_recycled(pytester: pytest.Py
     pytester.makeconftest(textwrap.dedent("""\
         from contextlib import asynccontextmanager
         import pytest
-        # Registers the two fixtures under test with this conftest.
-        from test.cluster.conftest import scylla_cluster, scylla_cluster_teardowns
+        # Registers the two fixtures under test, and the options the cluster
+        # fixture reads, with this conftest.
+        from test.cluster.conftest import pytest_addoption, scylla_cluster, scylla_cluster_teardowns
 
         class StubCluster:
             recycled = False
@@ -50,7 +51,7 @@ def test_cluster_teardowns_run_after_the_cluster_is_recycled(pytester: pytest.Py
         @pytest.fixture
         def testpy_cluster_factory():
             @asynccontextmanager
-            async def lease(node, test_name):
+            async def lease(node, test_name, **kwargs):
                 cluster = StubCluster()
                 try:
                     yield cluster
@@ -191,7 +192,7 @@ class LogWritingCluster:
         self.workdir = vardir / self.name
         self.servers = self.running = {}
 
-    async def add_server(self) -> None:
+    async def _add_server(self) -> None:
         self.workdir.mkdir(parents=True)
         log = self.workdir.with_suffix(".log")
         self.events.append(f"create {self.name} next to {sorted(p.name for p in log.parent.glob('*.log'))}")

@@ -33,7 +33,7 @@ from test.pylib.internal_types import IPAddress, ServerInfo
 from test.pylib.util import Host, wait_for_cql_and_get_hosts
 
 if TYPE_CHECKING:
-    from test.pylib.scylla_cluster_manager import ScyllaClusterManager
+    from test.pylib.scylla_cluster import ScyllaCluster
 
 
 conn_logger = logging.getLogger("conn_messages")
@@ -123,7 +123,7 @@ class ClusterDriverMixin:
             connection_class=CustomConnection,
         )
 
-    async def driver_connect(self: ScyllaClusterManager,
+    async def driver_connect(self: ScyllaCluster,
                              server: ServerInfo | None = None,
                              auth_provider: AuthProvider | None = None) -> None:
         """Connect to cluster."""
@@ -142,7 +142,7 @@ class ClusterDriverMixin:
         )
         self.cql = self.ccluster.connect()
 
-    def driver_close(self: ScyllaClusterManager) -> None:
+    def driver_close(self: ScyllaCluster) -> None:
         """Disconnect from cluster."""
 
         for cluster in self.exclusive_clusters:
@@ -154,13 +154,13 @@ class ClusterDriverMixin:
             self.ccluster = None
         self.cql = None
 
-    def get_cql(self: ScyllaClusterManager) -> CassandraSession:
+    def get_cql(self: ScyllaCluster) -> CassandraSession:
         """Precondition: driver is connected."""
 
         assert self.cql
         return self.cql
 
-    async def get_ready_cql(self: ScyllaClusterManager,
+    async def get_ready_cql(self: ScyllaCluster,
                             servers: list[ServerInfo]) -> tuple[CassandraSession, list[Host]]:
         """Precondition: driver is connected."""
 
@@ -169,7 +169,7 @@ class ClusterDriverMixin:
         hosts = await wait_for_cql_and_get_hosts(cql, servers, time() + 60)
         return cql, hosts
 
-    async def get_cql_exclusive(self: ScyllaClusterManager,
+    async def get_cql_exclusive(self: ScyllaCluster,
                                 server: ServerInfo,
                                 auth_provider: AuthProvider | None = None) -> CassandraSession:
         cluster = self.con_gen([server.ip_addr], self.port, self.use_ssl,
@@ -180,24 +180,24 @@ class ClusterDriverMixin:
         await wait_for_cql_and_get_hosts(cql, [server], time() + 60)
         return cql
 
-    def _driver_update(self: ScyllaClusterManager) -> None:
+    def _driver_update(self: ScyllaCluster) -> None:
         if self.ccluster is not None:
             self.logger.debug("refresh driver node list")
             self.ccluster.control_connection.refresh_node_list_and_token_map()
 
-    async def get_table_id(self: ScyllaClusterManager, keyspace: str, table: str) -> uuid.UUID:
+    async def get_table_id(self: ScyllaCluster, keyspace: str, table: str) -> uuid.UUID:
         rows = await self.get_cql().run_async(
             f"select id from system_schema.tables where keyspace_name = '{keyspace}' and table_name = '{table}'"
         )
         return rows[0].id
 
-    async def get_view_id(self: ScyllaClusterManager, keyspace: str, view: str) -> uuid.UUID:
+    async def get_view_id(self: ScyllaCluster, keyspace: str, view: str) -> uuid.UUID:
         rows = await self.get_cql().run_async(
             f"select id from system_schema.views where keyspace_name = '{keyspace}' and view_name = '{view}'"
         )
         return rows[0].id
 
-    async def get_table_or_view_id(self: ScyllaClusterManager, keyspace: str, table: str) -> uuid.UUID:
+    async def get_table_or_view_id(self: ScyllaCluster, keyspace: str, table: str) -> uuid.UUID:
         rows = await self.get_cql().run_async(
             f"select id from system_schema.tables where keyspace_name = '{keyspace}' and table_name = '{table}'"
         )

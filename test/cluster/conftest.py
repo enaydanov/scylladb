@@ -24,7 +24,6 @@ from test.pylib.encryption_provider import KeyProvider, make_key_provider_factor
 from test.pylib.object_storage import Storage, StorageFactory, StorageKind, create_gs_server, create_s3_server, format_tuples
 from test.pylib.random_tables import RandomTables
 from test.pylib.runner import PHASE_REPORT_KEY, SEASTAR_IO_KEY, make_failed_test_dir
-from test.pylib.scylla_cluster_manager import ScyllaClusterManager
 from test.pylib.scylla_server import ScyllaVersionDescription, get_scylla_2025_1_description, get_scylla_2026_1_description
 from test.pylib.skip_types import skip_env
 from test.pylib.util import unique_name
@@ -104,11 +103,18 @@ async def scylla_cluster(request: pytest.FixtureRequest,
     """A fresh empty ScyllaCluster for each test.
 
     Overrides the module-scoped fixture of the same name: every test in
-    test/cluster gets its own cluster, disposed of by the factory.
-    Depends on scylla_cluster_teardowns so those cleanups run once the
-    cluster is gone.
+    test/cluster gets its own cluster, disposed of by the factory, with the
+    driver options of the suite.  Depends on scylla_cluster_teardowns so
+    those cleanups run once the cluster is gone.
     """
-    async with testpy_cluster_factory(request.node, testpy_test_name) as cluster:
+    async with testpy_cluster_factory(
+            request.node,
+            testpy_test_name,
+            port=int(request.config.getoption("--port")),
+            use_ssl=bool(request.config.getoption("--ssl")),
+            auth_username=request.config.getoption("--auth_username", default=None),
+            auth_password=request.config.getoption("--auth_password", default=None),
+    ) as cluster:
         yield cluster
 
 
@@ -148,22 +154,14 @@ async def object_storage_factory(request: pytest.FixtureRequest,
 
 @pytest.fixture
 async def manager(request: pytest.FixtureRequest,
-                  scylla_cluster: ScyllaCluster,
-                  testpy_test_name: str) -> AsyncGenerator[ScyllaClusterManager]:
+                  scylla_cluster: ScyllaCluster) -> AsyncGenerator[ScyllaCluster]:
     """
-    Per test cluster manager: connects the driver, and on teardown checks the
-    server logs and reports the test's verdict to the manager.
+    The test's cluster, running on its own thread: connects the driver, and on
+    teardown checks the server logs and reports the test's verdict.
     """
     test_case_name = request.node.name
 
-    async with ScyllaClusterManager(
-            test_name=testpy_test_name,
-            cluster=scylla_cluster,
-            port=int(request.config.getoption("--port")),
-            use_ssl=bool(request.config.getoption("--ssl")),
-            auth_username=request.config.getoption("--auth_username", default=None),
-            auth_password=request.config.getoption("--auth_password", default=None),
-    ).run_in_thread() as mgr:
+    async with scylla_cluster.run_in_thread() as mgr:
         if request.node.get_closest_marker("prepare_3_nodes_cluster"):
             await mgr.servers_add(3)
         if request.node.get_closest_marker("prepare_3_racks_cluster"):
@@ -187,7 +185,7 @@ async def manager(request: pytest.FixtureRequest,
 
         failed_test_dir_path = None
         if failed or found_errors:
-            failed_test_dir_path = make_failed_test_dir(request.config, mgr.cluster.mode, test_case_name)
+            failed_test_dir_path = make_failed_test_dir(request.config, mgr.mode, test_case_name)
             # Gather the server logs while the manager is alive and the logs
             # still exist; the stacktrace and links are attached by
             # pytest_runtest_makereport.
@@ -233,7 +231,7 @@ async def manager(request: pytest.FixtureRequest,
                     with open(failed_test_dir_path / f"scylla-{server.server_id}-backtraces.txt", "w") as bt_file:
                         for backtrace in backtraces:
                             bt_file.write(backtrace + "\n\n")
-                            decoded_bt = await decode_backtrace(mgr.cluster.mode, backtrace)
+                            decoded_bt = await decode_backtrace(mgr.mode, backtrace)
                             bt_file.write(decoded_bt + "\n\n")
                         detailed.append(f"{len(backtraces)} backtrace(s) saved in {Path(bt_file.name).name}")
 
@@ -258,7 +256,7 @@ async def manager(request: pytest.FixtureRequest,
             if failed_test_dir_path is None:
                 # A leaked-tasks-only failure surfaces here, after the gather
                 # above; copy the logs now, before recycle() deletes them.
-                failed_test_dir_path = make_failed_test_dir(request.config, mgr.cluster.mode, test_case_name)
+                failed_test_dir_path = make_failed_test_dir(request.config, mgr.mode, test_case_name)
                 try:
                     await mgr.gather_related_logs(failed_test_dir_path)
                 except Exception:

@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from pytest import Config, Parser, FixtureRequest
 
-    from test.pylib.scylla_cluster_manager import ScyllaClusterManager
+    from test.pylib.scylla_cluster import ScyllaCluster
 
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ def fixture_dtest_setup_overrides(dtest_config: DTestConfig) -> DTestSetupOverri
 def fixture_dtest_setup(request: FixtureRequest,
                         dtest_config: DTestConfig,
                         fixture_dtest_setup_overrides: DTestSetupOverrides,
-                        manager: ScyllaClusterManager,
+                        manager: ScyllaCluster,
                         build_mode: str) -> Generator[DTestSetup]:
     dtest_setup = DTestSetup(
         dtest_config=dtest_config,

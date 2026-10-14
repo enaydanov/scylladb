@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 from itertools import chain, count
 from functools import cache, cached_property
 from random import randint
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 from types import SimpleNamespace
 
 import pytest
@@ -357,8 +357,9 @@ def testpy_cluster_factory(request: pytest.FixtureRequest,
         base_env["LLVM_PROFILE_FILE"] = str(coverage_dir(suite_log_dir) / suite_config.name / "%m.profraw")
 
     @asynccontextmanager
-    async def cluster_for_test(node: _pytest.nodes.Node, test_name: str) -> AsyncGenerator[ScyllaCluster]:
+    async def cluster_for_test(node: _pytest.nodes.Node, test_name: str, **kwargs: Any) -> AsyncGenerator[ScyllaCluster]:
         node.stash[CLUSTER_KEY] = cluster = ScyllaCluster(
+            test_name=test_name,
             logger=testpy_logger,
             vardir=suite_log_dir,
             mode=build_mode,
@@ -368,6 +369,7 @@ def testpy_cluster_factory(request: pytest.FixtureRequest,
             append_env=base_env,
             scylla_exe=scylla_binary,
             save_log_on_success=options.save_log_on_success,
+            **kwargs,
         )
         testpy_logger.info("Created Scylla cluster %s for test %s", cluster, test_name)
         try:
@@ -401,7 +403,7 @@ async def scylla_cluster(request: pytest.FixtureRequest,
     """A ScyllaCluster with one server, shared by the tests in a module."""
 
     async with testpy_cluster_factory(request.node, testpy_uname) as cluster:
-        await cluster.add_server()
+        await cluster._add_server()
         cluster.take_log_savepoint()
         yield cluster
         processes = [(server, server.cmd) for server in cluster.running.values() if server.cmd]

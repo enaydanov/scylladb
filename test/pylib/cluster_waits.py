@@ -12,13 +12,13 @@ from test.pylib.internal_types import HostID, IPAddress, ServerInfo, ServerNum
 from test.pylib.util import gather_safely, wait_for
 
 if TYPE_CHECKING:
-    from test.pylib.scylla_cluster_manager import ScyllaClusterManager
+    from test.pylib.scylla_cluster import ScyllaCluster
 
 
 class ClusterWaitsMixin:
     """Waiting until the servers agree on who is alive and known."""
 
-    async def wait_for_host_known(self: ScyllaClusterManager,
+    async def wait_for_host_known(self: ScyllaCluster,
                                   dst_server_ip: IPAddress,
                                   expect_host_id: HostID,
                                   deadline: float | None = None) -> None:
@@ -30,7 +30,7 @@ class ClusterWaitsMixin:
 
         await wait_for(host_is_known, deadline or (time() + 30))
 
-    async def wait_for_scylla_process_status(self: ScyllaClusterManager,
+    async def wait_for_scylla_process_status(self: ScyllaCluster,
                                              server_id: ServerNum,
                                              expected_statuses: list[str],
                                              deadline: float | None = None) -> str:
@@ -44,7 +44,7 @@ class ClusterWaitsMixin:
 
         return await wait_for(process_status_is_as_expected, deadline or (time() + 30))
 
-    async def server_sees_others(self: ScyllaClusterManager,
+    async def server_sees_others(self: ScyllaCluster,
                                  server_id: ServerNum,
                                  count: int,
                                  interval: float = 45.) -> None:
@@ -62,7 +62,7 @@ class ClusterWaitsMixin:
 
         await wait_for(_sees_min_others, time() + interval, period=.5)
 
-    async def server_sees_other_server(self: ScyllaClusterManager,
+    async def server_sees_other_server(self: ScyllaCluster,
                                        server_ip: IPAddress,
                                        other_ip: IPAddress,
                                        interval: float = 45.) -> None:
@@ -76,7 +76,7 @@ class ClusterWaitsMixin:
 
         await wait_for(_sees_another_server, time() + interval, period=.5)
 
-    async def servers_see_each_other(self: ScyllaClusterManager,
+    async def servers_see_each_other(self: ScyllaCluster,
                                      servers: list[ServerInfo],
                                      interval: float = 45.) -> None:
         """Wait till all servers see all other servers in the list."""
@@ -84,7 +84,7 @@ class ClusterWaitsMixin:
         others = [self.server_sees_others(srv.server_id, len(servers) - 1, interval) for srv in servers]
         await gather_safely(*others)
 
-    async def server_not_sees_other_server(self: ScyllaClusterManager,
+    async def server_not_sees_other_server(self: ScyllaCluster,
                                            server_ip: IPAddress,
                                            other_ip: IPAddress,
                                            interval: float = 45.) -> None:
@@ -98,7 +98,7 @@ class ClusterWaitsMixin:
 
         await wait_for(_not_sees_another_server, time() + interval, period=.5)
 
-    async def others_not_see_server(self: ScyllaClusterManager,
+    async def others_not_see_server(self: ScyllaCluster,
                                     server_ip: IPAddress,
                                     interval: float = 45.) -> None:
         """Wait till a server is seen as dead by all other running servers in the cluster."""
