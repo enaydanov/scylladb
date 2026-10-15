@@ -130,7 +130,9 @@ PHASE_REPORT_KEY = pytest.StashKey[dict[str, pytest.CollectReport]]()
 # The cluster a fixture created, stashed on the fixture's node: the test item
 # for `manager`, the module for `scylla_cluster`.  pytest_runtest_makereport
 # copies its server logs into the failed-test dir when the test fails.  The
-# factory resets the entry to None once the cluster is recycled, so a non-None
+# entry outlives the factory's recycle(), since a module's cluster is recycled
+# in the teardown of its last test, before that phase's report: the hook
+# uninstalls a recycled cluster and resets the entry to None.  So a non-None
 # entry at session finish marks a cluster the sweep in
 # recycle_leftover_clusters() still has to dispose of.
 CLUSTER_KEY = pytest.StashKey[ScyllaCluster | None]()
@@ -372,7 +374,6 @@ def testpy_cluster_factory(request: pytest.FixtureRequest,
         finally:
             testpy_logger.info("Test %s finished", test_name)
             await cluster.recycle()
-            node.stash[CLUSTER_KEY] = None
 
     return cluster_for_test
 
@@ -649,11 +650,13 @@ def get_cluster_from_pytest_node(node: _pytest.nodes.Node) -> ScyllaCluster | No
 
 
 async def recycle_leftover_clusters(session: pytest.Session) -> int:
-    """Dispose of the clusters whose fixtures never got to recycle them, e.g.
-    because the run was interrupted: their CLUSTER_KEY stash entry is still
-    set, since the factory clears it only after a successful recycle().
+    """Dispose of the clusters that were never recycled, e.g. because the run
+    was interrupted, and uninstall those recycled with no report after it,
+    e.g. by pytest's own teardown at session finish after an interrupt: their
+    CLUSTER_KEY stash entry is still set, since pytest_runtest_makereport
+    clears it only once it has uninstalled a recycled cluster.
 
-    Returns the number of clusters disposed of.
+    Returns the number of clusters that were never recycled.
     """
     swept = 0
     seen: set[_pytest.nodes.Node] = set()
@@ -662,7 +665,10 @@ async def recycle_leftover_clusters(session: pytest.Session) -> int:
             if node in seen:
                 continue
             seen.add(node)
-            if cluster := node.stash.get(CLUSTER_KEY, None):
+            cluster = node.stash.get(CLUSTER_KEY, None)
+            if cluster is None:
+                continue
+            if not cluster.is_recycled:
                 swept += 1
                 logger.warning("Cluster %s was never recycled, disposing of it at exit", cluster)
                 try:
@@ -677,12 +683,17 @@ async def recycle_leftover_clusters(session: pytest.Session) -> int:
                     await cluster.recycle()
                 except Exception:
                     logger.warning("Failed to recycle leftover cluster %s", cluster, exc_info=True)
+            try:
+                cluster.uninstall()
+            except Exception:
+                logger.warning("Failed to uninstall leftover cluster %s", cluster, exc_info=True)
     return swept
 
 
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item, call):
-    """Post-test hook to store test result in stash and optionally save logs.
+    """Post-test hook to store test result in stash, optionally save logs and
+    uninstall the clusters recycled by now.
 
     Stores each phase's report in item.stash[PHASE_REPORT_KEY][phase] so
     fixtures and hooks can access the test outcome per phase.  `item.stash`
@@ -727,6 +738,18 @@ def pytest_runtest_makereport(item, call):
                 )
             except Exception:
                 logger.warning("Failed to collect logs for failed test %s", item.name, exc_info=True)
+
+    # Not before the logs above are copied, since the phase that recycled a
+    # cluster may be the one that failed, and not at exit either, so that a
+    # long run doesn't keep the directories of thousands of clusters on disk.
+    for node in (item, *item.iter_parents()):
+        cluster = node.stash.get(CLUSTER_KEY, None)
+        if cluster is not None and cluster.is_recycled:
+            node.stash[CLUSTER_KEY] = None
+            try:
+                cluster.uninstall()
+            except Exception:
+                logger.warning("Failed to uninstall cluster %s", cluster, exc_info=True)
 
 
 class TestSuiteConfig:
