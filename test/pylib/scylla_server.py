@@ -362,6 +362,9 @@ class ScyllaServer:
         self._per_server_cmdline_options: List[str] = []
         self.auth_provider: Optional[AuthProvider] = None
         self.cmd: Optional[Process] = None
+        # set by stop() to the non-zero exit status of a process that ended
+        # by itself; 0 follows a shutdown asked for from outside, e.g. Ctrl-C
+        self.exit_status_before_stop: Optional[int] = None
         self.start_stop_lock = asyncio.Lock()
         self.stop_event = asyncio.Event()
         self.log_savepoint = 0
@@ -898,6 +901,7 @@ class ScyllaServer:
         if self.log_file is None or self.log_file.closed:
             self.log_file = self.log_filename.open("ab")  # append mode to preserve previous logs
 
+        self.exit_status_before_stop = None
         self.cmd = await asyncio.create_subprocess_exec(
             self.exe,
             *(self.cmdline_options if cmdline_options_override is None else cmdline_options_override),
@@ -1045,6 +1049,7 @@ class ScyllaServer:
             # process has already exited
             if cmd.returncode != 0:
                 self.logger.error("%s exited with non-zero status code: %d", self, cmd.returncode)
+                self.exit_status_before_stop = cmd.returncode
             self.logger.info("stopped %s in %s", self, self.workdir.name)
             self.cmd = None
             return
@@ -1058,6 +1063,11 @@ class ScyllaServer:
             pass
         else:
             await cmd.wait()
+            # A process that was already dying, e.g. dumping core, may end
+            # with its own status.
+            if cmd.returncode not in (0, -signal.SIGKILL):
+                self.logger.error("%s exited with status code %d before it was killed", self, cmd.returncode)
+                self.exit_status_before_stop = cmd.returncode
         finally:
             self.logger.info("stopped %s in %s", self, self.workdir.name)
             self.cmd = None

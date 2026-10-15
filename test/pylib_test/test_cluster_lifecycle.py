@@ -13,7 +13,8 @@ exercises:
 - a cluster that was never recycled, or never uninstalled, is swept up at
   session finish;
 - a recycled cluster's server logs outlive the report of the phase that
-  recycled it, so a failure in a module's last teardown still gets them.
+  recycled it, so a failure in a module's last teardown still gets them;
+- a module whose server exited on its own fails, with the server log.
 """
 
 import asyncio
@@ -189,8 +190,9 @@ HARNESS_CONFTEST = textwrap.dedent("""\
 class LogWritingCluster:
     """Stands in for ScyllaCluster: one server log named after the module, and a record of the runner's calls."""
 
-    def __init__(self, events: list[str], logger, vardir: pathlib.Path, **kwargs) -> None:
+    def __init__(self, events: list[str], exit_status: int | None, logger, vardir: pathlib.Path, **kwargs) -> None:
         self.events = events
+        self.exit_status = exit_status
         self.name = logger.name
         self.log = vardir / f"{self.name}.log"
         self.servers = {}
@@ -199,7 +201,7 @@ class LogWritingCluster:
     async def add_server(self) -> None:
         self.log.parent.mkdir(parents=True, exist_ok=True)
         self.log.write_text("server log\n")
-        self.servers[1] = SimpleNamespace(log_filename=self.log)
+        self.servers[1] = SimpleNamespace(log_filename=self.log, exit_status_before_stop=self.exit_status)
         self.events.append(f"create {self.name}")
 
     def take_log_savepoint(self) -> None:
@@ -213,11 +215,12 @@ class LogWritingCluster:
         self.events.append(f"uninstall {self.name}")
 
 
-def run_with_stub_clusters(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch,
+def run_with_stub_clusters(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, exit_status: int | None = None,
                            **modules: str) -> tuple[pytest.RunResult, list[str], pathlib.Path]:
-    """Run the modules against the harness; return the result, the cluster events and the failed_test dir."""
+    """Run the modules against the harness, with every server's exit status before stop() set to exit_status;
+    return the result, the cluster events and the failed_test dir."""
     events = []
-    monkeypatch.setattr(runner, "ScyllaCluster", partial(LogWritingCluster, events))
+    monkeypatch.setattr(runner, "ScyllaCluster", partial(LogWritingCluster, events, exit_status))
     pytester.makeconftest(HARNESS_CONFTEST)
     pytester.makeini(
         "[pytest]\n"
@@ -256,3 +259,19 @@ def test_failed_teardown_keeps_the_logs_of_a_recycled_cluster(pytester: pytest.P
     assert (failed_test_dir / "test_b" / "test_b.log").read_text() == "server log\n"
     assert "deliberate teardown failure" in (failed_test_dir / "test_b" / "stacktrace.txt").read_text()
     assert events == ["create test_a", "uninstall test_a", "create test_b", "uninstall test_b"]
+
+
+def test_module_whose_server_exited_on_its_own_fails(pytester: pytest.Pytester,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    """A server that exited with SIGABRT's status before recycle() stopped it
+    fails the module's last teardown, and its log lands in failed_test/; the
+    passing module of the test above is the twin without an exit status."""
+    result, events, failed_test_dir = run_with_stub_clusters(
+        pytester, monkeypatch, exit_status=-6,
+        test_c="def test_c(scylla_cluster): pass\n",
+    )
+
+    result.assert_outcomes(passed=1, errors=1)
+    result.stdout.fnmatch_lines(["E *RuntimeError: namespace(*) exited with status code -6"])
+    assert (failed_test_dir / "test_c" / "test_c.log").read_text() == "server log\n"
+    assert events == ["create test_c", "uninstall test_c"]

@@ -399,6 +399,12 @@ async def scylla_cluster(request: pytest.FixtureRequest,
         cluster.take_log_savepoint()
         yield cluster
 
+    # Nothing stops this server before recycle() does, so a non-zero exit
+    # status found then means it died, which would otherwise pass unnoticed.
+    if exits := [f"{server} exited with status code {server.exit_status_before_stop}"
+                 for server in cluster.servers.values() if server.exit_status_before_stop is not None]:
+        raise RuntimeError("; ".join(exits))
+
 
 def pytest_collection_modifyitems(items: list[pytest.Item], config: pytest.Config) -> None:
     run_ids = defaultdict(lambda: count(start=int(config.getoption("--run_id") or 1)))
