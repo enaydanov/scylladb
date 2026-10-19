@@ -24,7 +24,6 @@ from contextlib import asynccontextmanager
 from functools import reduce, wraps
 from time import time
 from typing import (
-    TYPE_CHECKING,
     Any,
     AsyncIterator,
     Awaitable,
@@ -61,15 +60,6 @@ from test.pylib.scylla_server import (
 )
 from test.pylib.util import gather_safely, graceful_stop_timeout, universalasync_typed_wrap, wait_for_cql_and_get_hosts
 
-
-if TYPE_CHECKING:
-    from contextlib import AbstractAsyncContextManager
-
-
-# Returns a context manager leasing a cluster to one test: entering it creates
-# the cluster, passing any keyword arguments on to its constructor, and stashes
-# it on the given node; exiting recycles it.
-type ClusterFactory = Callable[..., AbstractAsyncContextManager[ScyllaCluster]]
 
 
 class ReplaceConfig(NamedTuple):

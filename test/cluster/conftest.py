@@ -23,7 +23,7 @@ from test.pylib.connect_options import add_cql_connection_options, add_s3_option
 from test.pylib.encryption_provider import KeyProvider, make_key_provider_factory
 from test.pylib.object_storage import Storage, StorageFactory, StorageKind, create_gs_server, create_s3_server, format_tuples
 from test.pylib.random_tables import RandomTables
-from test.pylib.runner import PHASE_REPORT_KEY, SEASTAR_IO_KEY, make_failed_test_dir
+from test.pylib.runner import PHASE_REPORT_KEY, SEASTAR_IO_KEY, leased_cluster, make_failed_test_dir
 from test.pylib.scylla_server import ScyllaVersionDescription, get_scylla_2025_1_description, get_scylla_2026_1_description
 from test.pylib.skip_types import skip_env
 from test.pylib.util import unique_name
@@ -38,7 +38,7 @@ if SCRIPTS_DIR not in sys.path:
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from typing import Any
 
-from test.pylib.scylla_cluster import ClusterFactory, ScyllaCluster
+from test.pylib.scylla_cluster import ScyllaCluster
 
 
 type TeardownCallback = Callable[[], Any]
@@ -97,24 +97,25 @@ async def scylla_cluster_teardowns() -> AsyncGenerator[list[TeardownCallback]]:
 
 @pytest.fixture
 async def scylla_cluster(request: pytest.FixtureRequest,
-                         testpy_cluster_factory: ClusterFactory,
+                         testpy_cluster_options: dict[str, Any],
                          testpy_test_name: str,
                          scylla_cluster_teardowns: list[TeardownCallback]) -> AsyncGenerator[ScyllaCluster]:
     """A fresh empty ScyllaCluster for each test.
 
     Overrides the module-scoped fixture of the same name: every test in
-    test/cluster gets its own cluster, disposed of by the factory, with the
-    driver options of the suite.  Depends on scylla_cluster_teardowns so
-    those cleanups run once the cluster is gone.
+    test/cluster gets its own cluster, with the driver options of the suite,
+    leased to the test and recycled after it.  Depends on
+    scylla_cluster_teardowns so those cleanups run once the cluster is gone.
     """
-    async with testpy_cluster_factory(
-            request.node,
-            testpy_test_name,
-            port=int(request.config.getoption("--port")),
-            use_ssl=bool(request.config.getoption("--ssl")),
-            auth_username=request.config.getoption("--auth_username", default=None),
-            auth_password=request.config.getoption("--auth_password", default=None),
-    ) as cluster:
+    cluster = ScyllaCluster(
+        test_name=testpy_test_name,
+        port=int(request.config.getoption("--port")),
+        use_ssl=bool(request.config.getoption("--ssl")),
+        auth_username=request.config.getoption("--auth_username", default=None),
+        auth_password=request.config.getoption("--auth_password", default=None),
+        **testpy_cluster_options,
+    )
+    async with leased_cluster(request.node, cluster):
         yield cluster
 
 

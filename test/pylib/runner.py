@@ -56,8 +56,6 @@ if TYPE_CHECKING:
     import _pytest.nodes
     import _pytest.scope
 
-    from test.pylib.scylla_cluster import ClusterFactory
-
 
 TEST_CONFIG_FILENAME = "test_config.yaml"
 PYTEST_LOG_FOLDER = "pytest_log"
@@ -130,9 +128,9 @@ PHASE_REPORT_KEY = pytest.StashKey[dict[str, pytest.CollectReport]]()
 
 # The cluster a fixture created, stashed on the fixture's node: the test item
 # for `manager`, the module for `scylla_cluster`.  pytest_runtest_makereport
-# copies its server logs into the failed-test dir when the test fails.  The
-# factory resets the entry to None once the cluster is recycled, so a non-None
-# entry at session finish marks a cluster the sweep in
+# copies its server logs into the failed-test dir when the test fails.
+# leased_cluster() resets the entry to None once the cluster is recycled, so a
+# non-None entry at session finish marks a cluster the sweep in
 # recycle_leftover_clusters() still has to dispose of.
 CLUSTER_KEY = pytest.StashKey[ScyllaCluster | None]()
 
@@ -336,12 +334,12 @@ def scale_timeout(build_mode: str) -> Callable[[int | float], int | float]:
 
 
 @pytest.fixture(scope="module")
-def testpy_cluster_factory(request: pytest.FixtureRequest,
+def testpy_cluster_options(request: pytest.FixtureRequest,
                            build_mode: str,
                            suite_log_dir: pathlib.Path,
                            scylla_binary: str,
-                           testpy_logger: logging.Logger) -> ClusterFactory:
-    """A factory of Scylla clusters configured for the current suite and build mode."""
+                           testpy_logger: logging.Logger) -> dict[str, Any]:
+    """ScyllaCluster constructor arguments for the current suite and build mode."""
     suite_config = get_params_stash(node=request.node)[TEST_SUITE]
     options = request.config.option
 
@@ -356,34 +354,35 @@ def testpy_cluster_factory(request: pytest.FixtureRequest,
         # ref: https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program
         base_env["LLVM_PROFILE_FILE"] = str(coverage_dir(suite_log_dir) / suite_config.name / "%m.profraw")
 
-    @asynccontextmanager
-    async def cluster_for_test(node: _pytest.nodes.Node, test_name: str, **kwargs: Any) -> AsyncGenerator[ScyllaCluster]:
-        node.stash[CLUSTER_KEY] = cluster = ScyllaCluster(
-            test_name=test_name,
-            logger=testpy_logger,
-            vardir=suite_log_dir,
-            mode=build_mode,
-            cmdline_options=suite_config.cfg.get("extra_scylla_cmdline_options", []),
-            cmdline_options_override=options.extra_scylla_cmdline_options.split(),
-            config_options=suite_config.cfg.get("extra_scylla_config_options", {}),
-            append_env=base_env,
-            scylla_exe=scylla_binary,
-            save_log_on_success=options.save_log_on_success,
-            **kwargs,
-        )
-        testpy_logger.info("Created Scylla cluster %s for test %s", cluster, test_name)
-        try:
-            yield cluster
-        except Exception as exc:
-            testpy_logger.info("Test %s failed: %s", test_name, exc)
-            raise
-        finally:
-            testpy_logger.info("Test %s finished", test_name)
-            await cluster.recycle()
-            node.stash[CLUSTER_KEY] = None
-            node.config.stash.setdefault(RECYCLED_CLUSTERS_KEY, []).append(cluster)
+    return {
+        "logger": testpy_logger,
+        "vardir": suite_log_dir,
+        "mode": build_mode,
+        "cmdline_options": suite_config.cfg.get("extra_scylla_cmdline_options", []),
+        "cmdline_options_override": options.extra_scylla_cmdline_options.split(),
+        "config_options": suite_config.cfg.get("extra_scylla_config_options", {}),
+        "append_env": base_env,
+        "scylla_exe": scylla_binary,
+        "save_log_on_success": options.save_log_on_success,
+    }
 
-    return cluster_for_test
+
+@asynccontextmanager
+async def leased_cluster(node: _pytest.nodes.Node, cluster: ScyllaCluster) -> AsyncGenerator[ScyllaCluster]:
+    """Lease the cluster to the node's test or module: stash it on the node
+    (see CLUSTER_KEY) and recycle it when the lease ends."""
+    node.stash[CLUSTER_KEY] = cluster
+    cluster.logger.info("Created Scylla cluster %s for test %s", cluster, cluster.test_name)
+    try:
+        yield cluster
+    except Exception as exc:
+        cluster.logger.info("Test %s failed: %s", cluster.test_name, exc)
+        raise
+    finally:
+        cluster.logger.info("Test %s finished", cluster.test_name)
+        await cluster.recycle()
+        node.stash[CLUSTER_KEY] = None
+        node.config.stash.setdefault(RECYCLED_CLUSTERS_KEY, []).append(cluster)
 
 
 @pytest.fixture(scope="module")
@@ -398,11 +397,11 @@ def scylla_binary(request: pytest.FixtureRequest, build_mode: str) -> str:
 
 @pytest.fixture(scope="module")
 async def scylla_cluster(request: pytest.FixtureRequest,
-                         testpy_cluster_factory: ClusterFactory,
+                         testpy_cluster_options: dict[str, Any],
                          testpy_uname: str) -> AsyncGenerator[ScyllaCluster]:
     """A ScyllaCluster with one server, shared by the tests in a module."""
 
-    async with testpy_cluster_factory(request.node, testpy_uname) as cluster:
+    async with leased_cluster(request.node, ScyllaCluster(test_name=testpy_uname, **testpy_cluster_options)) as cluster:
         await cluster._add_server()
         cluster.take_log_savepoint()
         yield cluster
@@ -671,7 +670,7 @@ def get_cluster_from_pytest_node(node: _pytest.nodes.Node) -> ScyllaCluster | No
 async def recycle_leftover_clusters(session: pytest.Session) -> int:
     """Dispose of the clusters whose fixtures never got to recycle them, e.g.
     because the run was interrupted: their CLUSTER_KEY stash entry is still
-    set, since the factory clears it only after a successful recycle().
+    set, since leased_cluster() clears it only after a successful recycle().
 
     Returns the number of clusters disposed of.
     """

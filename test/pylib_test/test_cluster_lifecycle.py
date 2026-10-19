@@ -33,11 +33,12 @@ pytest_plugins = ["pytester"]
 
 def test_cluster_teardowns_run_after_the_cluster_is_recycled(pytester: pytest.Pytester) -> None:
     """The real scylla_cluster/scylla_cluster_teardowns fixtures, with the
-    cluster factory stubbed: the cleanups must observe a recycled cluster,
+    cluster class stubbed: the cleanups must observe a recycled cluster,
     and fire in LIFO order."""
     pytester.makeconftest(textwrap.dedent("""\
-        from contextlib import asynccontextmanager
+        import logging
         import pytest
+        import test.cluster.conftest
         # Registers the two fixtures under test, and the options the cluster
         # fixture reads, with this conftest.
         from test.cluster.conftest import pytest_addoption, scylla_cluster, scylla_cluster_teardowns
@@ -45,19 +46,21 @@ def test_cluster_teardowns_run_after_the_cluster_is_recycled(pytester: pytest.Py
         class StubCluster:
             recycled = False
 
+            def __init__(self, test_name, **kwargs):
+                self.test_name = test_name
+                self.logger = logging.getLogger("stub")
+
             async def recycle(self):
                 self.recycled = True
 
+        @pytest.fixture(autouse=True)
+        def stub_cluster_class(monkeypatch):
+            # The fixture builds the cluster from the name it imported.
+            monkeypatch.setattr(test.cluster.conftest, "ScyllaCluster", StubCluster)
+
         @pytest.fixture
-        def testpy_cluster_factory():
-            @asynccontextmanager
-            async def lease(node, test_name, **kwargs):
-                cluster = StubCluster()
-                try:
-                    yield cluster
-                finally:
-                    await cluster.recycle()
-            return lease
+        def testpy_cluster_options():
+            return {}
 
         @pytest.fixture
         def testpy_test_name():
@@ -113,7 +116,7 @@ class StubCluster:
 def test_leftover_clusters_are_recycled_at_session_finish(pytester: pytest.Pytester) -> None:
     """Clusters still stashed on a test item or its module get stopped and
     recycled exactly once; a stop() failure does not prevent the recycle;
-    an entry the factory already reset to None is left alone."""
+    an entry the lease already reset to None is left alone."""
     pytester.makeini("[pytest]\nasyncio_default_fixture_loop_scope = session\n")
     item_a, item_b = pytester.getitems(textwrap.dedent("""\
         def test_a(): pass
@@ -133,7 +136,7 @@ def test_leftover_clusters_are_recycled_at_session_finish(pytester: pytest.Pytes
     assert (shared.stops, shared.recycles) == (1, 1)
 
 
-# Registers the real module-scoped scylla_cluster fixture, its cluster factory
+# Registers the real module-scoped scylla_cluster fixture, its cluster options
 # and the report hook, with just enough of test.py's options, stash entries
 # and fixtures around them to run without a suite.
 HARNESS_CONFTEST = textwrap.dedent("""\
@@ -144,7 +147,7 @@ HARNESS_CONFTEST = textwrap.dedent("""\
     import pytest
 
     from test.pylib.runner import (BUILD_MODE, TEST_SUITE, pytest_runtest_makereport, scylla_cluster,
-                                   testpy_cluster_factory)
+                                   testpy_cluster_options)
 
     def pytest_addoption(parser):
         parser.addoption("--tmpdir")
@@ -185,9 +188,12 @@ class LogWritingCluster:
 
     save_log_on_success = False
 
-    def __init__(self, events: list[str], exit_status: int | None, logger, vardir: pathlib.Path, **kwargs) -> None:
+    def __init__(self, events: list[str], exit_status: int | None, test_name: str, logger, vardir: pathlib.Path,
+                 **kwargs) -> None:
         self.events = events
         self.exit_status = exit_status
+        self.test_name = test_name
+        self.logger = logger
         self.name = logger.name
         self.workdir = vardir / self.name
         self.servers = self.running = {}
